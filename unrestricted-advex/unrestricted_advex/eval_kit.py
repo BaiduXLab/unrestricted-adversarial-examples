@@ -72,7 +72,7 @@ def run_attack(model, data_iter, attack_fn):
 def evaluate_two_class_unambiguous_model(
       model_fn, data_iter, attack_list,
       model_name=None,
-      eval_results_dir='/tmp/unrestricted_advex_evals',
+      eval_results_dir='./unrestricted_advex_evals',
 ):
   """
   Evaluates a model_fn on a set of attacks and creates plots
@@ -86,7 +86,6 @@ def evaluate_two_class_unambiguous_model(
   if model_name is None:
     model_name = 'unnamed_defense'
   adversarial_images_dir = os.path.join(eval_results_dir, model_name)
-
   # Load the whole data_iter into memory because we will iterate through the iterator multiple times
   data_iter = list(data_iter)
 
