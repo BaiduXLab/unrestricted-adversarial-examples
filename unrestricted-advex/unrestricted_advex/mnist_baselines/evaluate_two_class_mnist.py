@@ -5,7 +5,7 @@ from unrestricted_advex.mnist_baselines import mnist_utils
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_string("model_dir", "/tmp/two-class-mnist/vanilla",
+flags.DEFINE_string("model_dir", "./two-class-mnist/vanilla",
                     "Where to load the model to attack from")
 flags.DEFINE_integer("num_datapoints", 128,
                      "How many datapoints to evaluate on")
