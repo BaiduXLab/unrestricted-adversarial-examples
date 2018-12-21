@@ -13,6 +13,8 @@ from tqdm import tqdm
 from unrestricted_advex import attacks, plotting
 from unrestricted_advex.mnist_baselines import mnist_utils
 
+import pdb
+
 
 def _validate_logits(logits, batch_size):
   """Validate the model_fn to help the researcher with debugging"""
@@ -298,3 +300,41 @@ def evaluate_bird_or_bicycle_model(model_fn, dataset_iter=None, model_name=None)
     model_fn, dataset_iter,
     model_name=model_name,
     attack_list=attack_list)
+
+
+def evaluate_bird_or_bicycle_model_on_trainingset(model_fn, dataset_iter=None, model_name=None):
+  """
+  Evaluates a bird_or_bicycle classifier on a default set of attacks and creates plots
+  :param model_fn: A function mapping images to logits
+  :param dataset_iter: An iterable that returns (batched_images, batched_labels, image_ids)
+  :param model_name: An optional model_fn name
+  """
+
+  if dataset_iter is None:
+    dataset_iter = bird_or_bicycle.get_iterator('extras', batch_size=4)
+
+  bird_or_bicycle_shape = (224, 224, 3)
+  bird_or_bicycle_spatial_limits = [18, 18, 30]
+  bird_or_bicycle_black_border_size = 20
+  
+  attack_list = [
+    #attacks.CleanData(),
+
+    attacks.SimpleSpatialAttack(
+      spatial_limits=bird_or_bicycle_spatial_limits,
+      grid_granularity=[5, 5, 31],
+      black_border_frac=0.15,
+    ),
+
+    attacks.CommonCorruptionsAttack(),
+  ]
+
+  return evaluate_two_class_unambiguous_model(
+    model_fn, dataset_iter,
+    model_name=model_name,
+    attack_list=attack_list)
+
+
+
+
+

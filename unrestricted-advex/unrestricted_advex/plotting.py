@@ -43,7 +43,6 @@ def save_image_to_png(image_np, filename):
     img = Image.fromarray(np.uint8(image_np[:, :, 0] * 255.), 'L')
   img.save(filename)
 
-
 def plot_confident_error_rate(coverages, cov_to_confident_error_idxs, num_examples,
                               attack_name, results_dir, legend=None,
                               title="Risk vs Coverage ({attack_name})"):

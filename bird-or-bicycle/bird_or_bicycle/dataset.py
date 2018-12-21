@@ -24,6 +24,7 @@ from PIL import Image
 from bird_or_bicycle import metadata
 from bird_or_bicycle.metadata import NUM_IMAGES_PER_CLASS
 from tqdm import tqdm
+import pdb
 
 VERSION = '0.0.4'
 METADATA_ROOT = os.path.dirname(metadata.__file__)
@@ -241,6 +242,8 @@ def get_dataset(split, data_root=None, force_download=False, verify=True):
   split_root = os.path.join(data_root, split)
 
   if os.path.isdir(split_root) and not force_download:
+    if split == 'advs':
+      return split_root
     if verify:
       verify_dataset_integrity(split, data_root)
     return split_root
