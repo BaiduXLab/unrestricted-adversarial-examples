@@ -61,7 +61,7 @@ parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
                     metavar='W', help='weight decay (default: 1e-4)')
 parser.add_argument('--print-freq', '-p', default=10, type=int,
                     metavar='N', help='print frequency (default: 10)')
-parser.add_argument('--resume', default='./saved_models/model_test.pth.tar', type=str, metavar='PATH',
+parser.add_argument('--resume', default='./saved_models/model_best.pth.tar', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
@@ -273,7 +273,7 @@ def train_epoch(train_loader, model, criterion, optimizer, epoch):
     # measure elapsed time
     batch_time.update(time.time() - end)
     end = time.time()
-    '''
+    
     if i % args.print_freq == 0 or args.smoke_test:
       print('Epoch: [{0}][{1}/{2}]\t'
             'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
@@ -282,7 +282,7 @@ def train_epoch(train_loader, model, criterion, optimizer, epoch):
             'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t)'.format(
         epoch, i, len(train_loader), batch_time=batch_time,
         data_time=data_time, loss=losses, top1=top1))
-    '''
+    
     if args.smoke_test:
       break  # smoke test train with only 1 batch
 
