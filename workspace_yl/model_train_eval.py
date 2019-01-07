@@ -358,7 +358,7 @@ def evaluate(model):
       result = model(x_t).cpu().numpy()
       return result
 
-  eval_kit.evaluate_bird_or_bicycle_model_on_trainingset(
+  eval_kit.evaluate_bird_or_bicycle_model( #_on_trainingset
     wrapped_model,
     model_name='undefended_pytorch_resnet'
   )
@@ -431,5 +431,4 @@ def split_adv_examples(dir_path):
 
 if __name__ == '__main__':
   main()
-  #main_refine_training()
   #split_adv_examples('./unrestricted_advex_evals/undefended_pytorch_resnet/common_corruptions/incorrect_images')

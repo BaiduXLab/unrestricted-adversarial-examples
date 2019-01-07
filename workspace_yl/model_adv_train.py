@@ -16,6 +16,7 @@ from model_train_eval import get_model
 from model_train_eval import AverageMeter, accuracy, save_checkpoint
 import time
 import os
+from tqdm import tqdm
 
 import pdb
 
@@ -123,7 +124,8 @@ def main():
         print("=> loading checkpoint '{}'".format(pre_weight_path))
         checkpoint = torch.load(pre_weight_path)
         #start_epoch = checkpoint['epoch']
-        #best_prec1 = checkpoint['best_prec1']
+        best_prec1 = checkpoint['best_prec1']
+        print('Initiate accuracy: ', best_prec1)
         net.load_state_dict(checkpoint['state_dict'])
         #optimizer.load_state_dict(checkpoint['optimizer'])
         print("=> loaded checkpoint '{}' (epoch {})"
@@ -146,8 +148,7 @@ def main():
     for epoch in range(param['num_epochs']):
 
         print('Starting epoch %d / %d' % (epoch + 1, param['num_epochs']))
-
-        for t, (x, y) in enumerate(loader_train):
+        for t, (x, y) in enumerate(tqdm(loader_train)):
 
             x_var, y_var = to_var(x), to_var(y.long())
             loss = criterion(net(x_var), y_var)
@@ -161,9 +162,6 @@ def main():
                 loss_adv = criterion(net(x_adv_var), y_var)
                 loss = (loss + loss_adv) / 2
 
-            if (t + 1) % 100 == 0:
-                print('t = %d, loss = %.8f' % (t + 1, loss.data.cpu().numpy()))
-
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -171,6 +169,7 @@ def main():
         prec1 = validate_epoch(loader_val, net, criterion, gpu=None)
 
         is_best = prec1 > best_prec1
+        print('Got better accuracy. Updating...')
         best_prec1 = max(prec1, best_prec1)
         save_checkpoint({
         'epoch': epoch + 1,
@@ -180,11 +179,11 @@ def main():
         'optimizer': optimizer.state_dict(),
         }, is_best, net)
 
-        torch.save(net.state_dict(), 'state_dict_adv_'+ str(epoch) +'.pkl')
+        #torch.save(net.state_dict(), 'state_dict_adv_'+ str(epoch) +'.pkl')
 
     test(net, loader_val)
 
-    torch.save(net.state_dict(), 'models/adv_trained_lenet5.pkl')
+    #torch.save(net.state_dict(), 'state_dict_adv_final.pkl')
 
 
 
