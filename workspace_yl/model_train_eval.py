@@ -366,10 +366,11 @@ def evaluate(model):
 
 def save_checkpoint(state, is_best, model, filename='checkpoint.pth.tar'):
   torch.save(state, filename)
-  torch.save(model, './whole_model_ckp.pth')
+  #torch.save(model, './whole_model_ckp.pth')
   if is_best:
+    print('Got better accuracy. Updating...')
     shutil.copyfile(filename, 'model_best.pth.tar')
-    shutil.copyfile('./whole_model_ckp.pth', './whole_model_best.pth')
+    #shutil.copyfile('./whole_model_ckp.pth', './whole_model_best.pth')
 
 
 class AverageMeter(object):

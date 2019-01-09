@@ -12,6 +12,7 @@ from terminaltables import AsciiTable
 from tqdm import tqdm
 from unrestricted_advex import attacks, plotting
 from unrestricted_advex.mnist_baselines import mnist_utils
+import shutil
 
 import pdb
 
@@ -88,6 +89,10 @@ def evaluate_two_class_unambiguous_model(
   if model_name is None:
     model_name = 'unnamed_defense'
   adversarial_images_dir = os.path.join(eval_results_dir, model_name)
+  if not os.path.isdir(eval_results_dir):
+    os.mkdir(eval_results_dir)
+  if not os.path.isdir(adversarial_images_dir):
+    os.mkdir(adversarial_images_dir)
   # Load the whole data_iter into memory because we will iterate through the iterator multiple times
   data_iter = list(data_iter)
 
@@ -95,6 +100,7 @@ def evaluate_two_class_unambiguous_model(
     ['Attack name', 'Acc @ 80% cov', 'Acc @ 100% cov']
   ]
   results = {}
+
   for attack in attack_list:
     print("Executing attack: %s" % attack.name)
 
@@ -108,8 +114,13 @@ def evaluate_two_class_unambiguous_model(
     logits, labels, correct, x_adv, image_ids = run_attack(model_fn, attack_data_iter, attack)
 
     results_dir = os.path.join(adversarial_images_dir, attack.name)
+    if os.path.isdir(results_dir):
+      shutil.rmtree(results_dir)
+    os.mkdir(results_dir)
+
     plotting.save_correct_and_incorrect_adv_images(
       x_adv=x_adv,
+      logits = logits,
       correct=correct,
       labels=labels,
       image_ids=image_ids,
@@ -273,14 +284,8 @@ def evaluate_bird_or_bicycle_model(model_fn, dataset_iter=None, model_name=None)
 
     attacks.CommonCorruptionsAttack(),
 
-    attacks.SpsaWithRandomSpatialAttack(
-      model_fn,
-      image_shape_hwc=bird_or_bicycle_shape,
-      spatial_limits=bird_or_bicycle_spatial_limits,
-      black_border_size=bird_or_bicycle_black_border_size,
-      epsilon=(16. / 255),
-      num_steps=200,
-    ),
+    attacks.SpsaWithRandomSpatialAttack(model_fn, image_shape_hwc=bird_or_bicycle_shape, spatial_limits=bird_or_bicycle_spatial_limits, black_border_size=bird_or_bicycle_black_border_size, epsilon=(16. / 255), num_steps=200,),
+
   ]
 
   boundary_attack = attacks.BoundaryWithRandomSpatialAttack(
@@ -294,7 +299,10 @@ def evaluate_bird_or_bicycle_model(model_fn, dataset_iter=None, model_name=None)
 
   # We limit the boundary attack to the first datapoints to speed up eval
   boundary_attack._stop_after_n_datapoints = 100
+
+  '''
   attack_list.append(boundary_attack)
+  '''
 
   return evaluate_two_class_unambiguous_model(
     model_fn, dataset_iter,

@@ -11,24 +11,45 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
+import csv
+
+import pdb
 
 
-def save_correct_and_incorrect_adv_images(x_adv, correct, image_ids, labels, results_dir):
-  correct_dir = os.path.join(results_dir, 'correct_images')
-  shutil.rmtree(correct_dir, ignore_errors=True)
+def save_correct_and_incorrect_adv_images(x_adv, logits, correct, image_ids, labels, results_dir):
+    correct_dir = os.path.join(results_dir, 'correct_images')
+    shutil.rmtree(correct_dir, ignore_errors=True)
 
-  incorrect_dir = os.path.join(results_dir, 'incorrect_images')
-  shutil.rmtree(incorrect_dir, ignore_errors=True)
+    incorrect_dir = os.path.join(results_dir, 'incorrect_images')
+    shutil.rmtree(incorrect_dir, ignore_errors=True)
 
-  for i, image_np in enumerate(x_adv):
-    if correct[i]:
-      save_dir = correct_dir
-    else:
-      save_dir = incorrect_dir
+    confidences = np.max(_softmax(logits), axis=1)
 
-    filename = "adv_%s_%s.png" % (labels[i], image_ids[i])
-    save_image_to_png(image_np, os.path.join(save_dir, filename))
+    datafile = results_dir + '/results.csv' 
+    with open(datafile, 'w') as csvfile:
+        writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        writer.writerow(["image id","label","correct","confidence"])
 
+    for i, image_np in enumerate(x_adv):
+        if correct[i]:
+            save_dir = correct_dir
+        else:
+            save_dir = incorrect_dir
+
+        filename = "adv_%s_%s_%s.png" % (labels[i], int(confidences[i]*100), image_ids[i])
+        save_image_to_png(image_np, os.path.join(save_dir, filename))
+
+        with open(datafile, 'a') as csvfile:
+            writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            writer.writerow([image_ids[i],labels[i],correct[i],confidences[i]])
+
+def _softmax(w, t = 1.0):
+    result = []
+    for temp_w in w:
+        e = np.exp(np.array(temp_w) / t)
+        dist = e / np.sum(e)
+        result.append(dist)
+    return np.array(result)
 
 def save_image_to_png(image_np, filename):
   from PIL import Image
