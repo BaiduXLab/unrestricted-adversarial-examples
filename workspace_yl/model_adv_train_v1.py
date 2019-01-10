@@ -76,7 +76,7 @@ def main():
         'learning_rate': 1e-6,   #1e-4
         'weight_decay': 5e-4,
         'momentum' : 0.9,
-        'adv_train' : True
+        'adv_PGD' : True
     }
 
     param['workers'] = int(4 * (param['batch_size'] / 256))
@@ -124,7 +124,7 @@ def main():
     optimizer = torch.optim.SGD(net.parameters(), lr=param['learning_rate'], momentum=param['momentum'],  weight_decay=param['weight_decay'])
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30, 60, 80], gamma=0.2)
 
-    pre_weight_path = './model_best.pth.tar'           #'./saved_models/model_best_adv.pth.tar'
+    pre_weight_path = './saved_models/model_best.pth.tar'         
 
     if os.path.isfile(pre_weight_path):
         print("=> loading checkpoint '{}'".format(pre_weight_path))
@@ -140,6 +140,7 @@ def main():
         print("=> no checkpoint found at '{}'".format(pre_weight_path))
 
     optimizer = torch.optim.RMSprop(net.parameters(), lr=param['learning_rate'], weight_decay=param['weight_decay'])
+    optimizer_adv = torch.optim.RMSprop(net.parameters(), lr=param['learning_rate'], weight_decay=param['weight_decay'])
 
 
     if torch.cuda.is_available():
@@ -147,13 +148,11 @@ def main():
         net.cuda()
     net.train()
 
-    adversary = LinfPGDAttack(epsilon=0.3, k=4, a=0.1, random_start=True) # k=40, a=0.01
-
     data_time_str = datetime.now().ctime()
     save_weights_dir = os.path.join('/mnt','fs_huge','adv_training_models',data_time_str)
     os.mkdir(save_weights_dir)
 
-    loss_file = './loss_info_' + data_time_str + '.csv'
+    loss_file = './loss_info_adv_v1_' + data_time_str + '.csv'
     with open(loss_file, 'w') as csvfile:
         writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         writer.writerow(["loss_ori","loss_adv","loss_ori_eval"])
@@ -168,21 +167,23 @@ def main():
         for t, (x, y) in enumerate(tqdm(loader_train)):
 
             x_var, y_var = to_var(x), to_var(y.long())
-            loss = criterion(net(x_var), y_var)
-            loss_ori = loss
+            loss_ori = criterion(net(x_var), y_var)
+            optimizer.zero_grad()
+            loss_ori.backward()
+            optimizer.step()
             
             # adversarial training
-            if epoch + 1 > param['delay'] and param['adv_train']:
+            if epoch + 1 > param['delay'] and param['adv_PGD']:
+                adversary = LinfPGDAttack(epsilon=0.3, k=4, a=0.1, random_start=True) # k=40, a=0.01
                 # use predicted label to prevent label leaking
                 y_pred = pred_batch(x, net)
                 x_adv = adv_train(x, y_pred, net, criterion, adversary)
                 x_adv_var = to_var(x_adv)
                 loss_adv = criterion(net(x_adv_var), y_var)
-                loss = (loss + loss_adv) / 2
             
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+                optimizer_adv.zero_grad()
+                loss_adv.backward()
+                optimizer_adv.step()
 
             loss_ori_np = loss_ori.cpu().detach().numpy()
             if 'loss_adv' in locals():
@@ -215,10 +216,12 @@ def main():
                 result = net(x_t).cpu().numpy()
             return result
         
+        '''
         if (epoch + 1) % 5 == 0:
             eval_prec = eval_kit.evaluate_bird_or_bicycle_model(wrapped_model, model_name='undefended_pytorch_resnet_adv_'+str(epoch)) #_on_trainingset
             print("epoch: ", epoch)
             print(eval_prec)
+        '''
 
         prec1 = 0.0
         is_best = prec1 >= best_prec1
@@ -233,7 +236,7 @@ def main():
 
         #torch.save(net.state_dict(), 'state_dict_adv_'+ str(epoch) +'.pkl')
 
-    test(net, loader_val)
+    #test(net, loader_val)
 
     #torch.save(net.state_dict(), 'state_dict_adv_final.pkl')
 
