@@ -6,9 +6,35 @@ from scipy.stats import truncnorm
 import torch
 import torch.nn as nn
 
+import multiprocessing
+
 from adversarialbox.utils import to_var
 
 # --- White-box attacks ---
+
+class Attack(object):
+	name = None
+
+	# TODO: Refactor this out of this object
+	_stop_after_n_datapoints = None	# An attack can optionally run on only a subset of the dataset
+
+	def __call__(self, *args, **kwargs):
+		raise NotImplementedError()
+
+def corrupt_float32_image(x, corruption_name, severity):
+	"""Convert to uint8 and back to conform to corruption API"""
+	x = np.copy(x)	# We make a copy to avoid changing things in-place
+	x = (x * 255).astype(np.uint8)
+
+	corrupt_x = corrupt(
+		x,
+		corruption_name=corruption_name,
+		severity=severity)
+	return corrupt_x.astype(np.float32) / 255.
+
+
+def _corrupt_float32_image_star(args):
+	return corrupt_float32_image(*args)
 
 class FGSMAttack(object):
     def __init__(self, model=None, epsilon=None):
