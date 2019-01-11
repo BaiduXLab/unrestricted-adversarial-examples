@@ -80,9 +80,9 @@ def main():
         'adv_PGD' : True,
         'adv_CC' : False,
     }
-    PGD_param = {"epsilon" : 16. / 255,
-                 "k" : 4,
-                 "a" : 6. / 255,
+    PGD_param = {"epsilon" : 32. / 255,
+                 "k" : 8,
+                 "a" : 2. / 255,
                  "random_start" : True}
 
     param['workers'] = int(4 * (param['batch_size'] / 256))
@@ -128,7 +128,7 @@ def main():
     net = get_model()
     criterion = nn.CrossEntropyLoss().cuda()
 
-    pre_weight_path = './saved_models/model_adv_009_038_038.pth.tar'         
+    pre_weight_path = './saved_models/model_adv_004_006_015.pth.tar'         
 
     if os.path.isfile(pre_weight_path):
         print("=> loading checkpoint '{}'".format(pre_weight_path))
@@ -265,7 +265,7 @@ def main():
         # record loss info
         with open(loss_file, 'a') as csvfile:
             writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            writer.writerow([loss_mean[0], loss_mean[1], loss_mean[2], loss_eval_mean, loss_pgd_eval_mean])
+            writer.writerow([loss_ori_mean, loss_pgd_mean, loss_cc_mean, loss_eval_mean, loss_pgd_eval_mean])
         
         def wrapped_model(x_np):
             x_np = x_np.transpose((0, 3, 1, 2))  # from NHWC to NCHW
