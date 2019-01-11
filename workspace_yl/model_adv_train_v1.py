@@ -72,7 +72,7 @@ def main():
     param = {
         'batch_size': 8,
         'test_batch_size': 100,
-        'num_epochs': 100,
+        'num_epochs': 200,
         'delay': 0,
         'learning_rate': 1e-6,   #1e-4
         'weight_decay': 5e-4,
@@ -81,8 +81,8 @@ def main():
         'adv_CC' : False,
     }
     PGD_param = {"epsilon" : 0.3,
-                 "k" : 1,
-                 "a" : 0.1,
+                 "k" : 4,
+                 "a" : 0.02,
                  "random_start" : True}
 
     param['workers'] = int(4 * (param['batch_size'] / 256))
@@ -130,7 +130,7 @@ def main():
     optimizer = torch.optim.SGD(net.parameters(), lr=param['learning_rate'], momentum=param['momentum'],  weight_decay=param['weight_decay'])
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30, 60, 80], gamma=0.2)
 
-    pre_weight_path = './saved_models/model_best.pth.tar'         
+    pre_weight_path = './saved_models/model_adv_009_038_038.pth.tar'         
 
     if os.path.isfile(pre_weight_path):
         print("=> loading checkpoint '{}'".format(pre_weight_path))
@@ -164,7 +164,7 @@ def main():
     loss_file = './loss_info_adv_v1_' + data_time_str + '.csv'
     with open(loss_file, 'w') as csvfile:
         writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        writer.writerow(["loss_ori","loss_adv","loss_cc","loss_ori_eval"])
+        writer.writerow(["loss_ori", "loss_adv", "loss_cc", "loss_ori_eval", "loss_pgd_eval_mean"])
     print("Start training")
     # Train the model
     print('Abandoned initial accuracy. Set as 0.00')
@@ -174,7 +174,6 @@ def main():
         loss_list = []
         print('Starting epoch %d / %d' % (epoch + 1, param['num_epochs']))
         for t, (x, y) in enumerate(tqdm(loader_train)):
-
             x_var, y_var = to_var(x), to_var(y.long())
             loss_ori = criterion(net(x_var), y_var)
             optimizer.zero_grad()
@@ -230,19 +229,33 @@ def main():
 
         # get evaluate loss
         loss_eval_list = []
+        loss_pgd_eval_list = []
         for _, (x, y) in enumerate(tqdm(loader_val)):
             net.eval()
             x_var, y_var = to_var(x), to_var(y.long())
             output = net(x_var)
             loss_eval = criterion(output, y_var)
             loss_eval_list.append(loss_eval.cpu().detach().numpy())
-        loss_eval_mean = np.mean(np.array(loss_eval_list))
 
-        print("loss_ori , loss_pgd , loss_cc, loss_ori_eval: ", loss_mean[0], " , ", loss_mean[1], " , ", loss_mean[2], " , ", loss_eval_mean)
+            if epoch % 1 ==0 and param['adv_PGD']:
+                adversary = LinfPGDAttack(epsilon=PGD_param["epsilon"], k=PGD_param["k"], a=PGD_param["a"], random_start=PGD_param["random_start"])
+                y_pred = pred_batch(x, net)
+                x_adv = adv_train(x, y_pred, net, criterion, adversary)
+                x_adv_var = to_var(x_adv)
+                loss_pgd_eval = criterion(net(x_adv_var), y_var)
+                loss_pgd_eval_list.append(loss_pgd_eval.cpu().detach().numpy())
+
+        loss_eval_mean = np.mean(np.array(loss_eval_list))
+        if len(loss_pgd_eval_list) == 0:
+            loss_pgd_eval_mean = 0
+        else:
+            loss_pgd_eval_mean = np.mean(np.array(loss_pgd_eval_list))
+
+        print("loss_ori , loss_pgd , loss_cc, loss_ori_eval, loss_pgd_eval: ", loss_mean[0], " , ", loss_mean[1], " , ", loss_mean[2], " , ", loss_eval_mean, " , ", loss_pgd_eval_mean)
         # record loss info
         with open(loss_file, 'a') as csvfile:
             writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            writer.writerow([loss_mean[0], loss_mean[1], loss_mean[2], loss_eval_mean])
+            writer.writerow([loss_mean[0], loss_mean[1], loss_mean[2], loss_eval_mean, loss_pgd_eval_mean])
         
         def wrapped_model(x_np):
             x_np = x_np.transpose((0, 3, 1, 2))  # from NHWC to NCHW
@@ -253,7 +266,7 @@ def main():
             return result
         
         
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % 100 == 0:
             eval_prec = eval_kit.evaluate_bird_or_bicycle_model(wrapped_model, model_name='undefended_pytorch_resnet_adv_'+str(epoch)) #_on_trainingset
             print("epoch: ", epoch)
             print(eval_prec)
