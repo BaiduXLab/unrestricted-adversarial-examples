@@ -80,9 +80,9 @@ def main():
         'adv_PGD' : True,
         'adv_CC' : False,
     }
-    PGD_param = {"epsilon" : 0.3,
-                 "k" : 1,
-                 "a" : 0.1,
+    PGD_param = {"epsilon" : 0.03,
+                 "k" : 4,
+                 "a" : 0.01,
                  "random_start" : True}
 
     param['workers'] = int(4 * (param['batch_size'] / 256))
@@ -130,7 +130,7 @@ def main():
     optimizer = torch.optim.SGD(net.parameters(), lr=param['learning_rate'], momentum=param['momentum'],  weight_decay=param['weight_decay'])
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30, 60, 80], gamma=0.2)
 
-    pre_weight_path = './saved_models/model_best.pth.tar'         
+    pre_weight_path = './saved_models/model_adv_009_038_038.pth.tar'         
 
     if os.path.isfile(pre_weight_path):
         print("=> loading checkpoint '{}'".format(pre_weight_path))
@@ -145,7 +145,7 @@ def main():
     else:
         print("=> no checkpoint found at '{}'".format(pre_weight_path))
 
-    optimizer = torch.optim.RMSprop(net.parameters(), lr=param['learning_rate'], weight_decay=param['weight_decay'])
+    optimizer = torch.optim.RMSprop(net.parameters(), lr=0.5 * param['learning_rate'], weight_decay=param['weight_decay'])
     optimizer_pgd = torch.optim.RMSprop(net.parameters(), lr=param['learning_rate'], weight_decay=param['weight_decay'])
     optimizer_cc = torch.optim.RMSprop(net.parameters(), lr=param['learning_rate'], weight_decay=param['weight_decay'])
 
@@ -156,7 +156,7 @@ def main():
     net.train()
 
     data_time_str = datetime.now().ctime()
-    save_weights_dir = os.path.join('/mnt','fs_huge','adv_training_models',data_time_str)
+    save_weights_dir = os.path.join('/data','adv_training_models',data_time_str)
     os.mkdir(save_weights_dir)
 
     write_para_info(param, PGD_param, filepath = os.path.join(save_weights_dir, 'para_info.txt'))
@@ -253,7 +253,7 @@ def main():
             return result
         
         
-        if (epoch + 1) % 10 == 0:
+        if (epoch + 1) % 100 == 0:
             eval_prec = eval_kit.evaluate_bird_or_bicycle_model(wrapped_model, model_name='undefended_pytorch_resnet_adv_'+str(epoch)) #_on_trainingset
             print("epoch: ", epoch)
             print(eval_prec)
