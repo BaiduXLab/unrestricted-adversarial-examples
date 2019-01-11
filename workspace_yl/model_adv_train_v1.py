@@ -72,7 +72,7 @@ def main():
     param = {
         'batch_size': 8,
         'test_batch_size': 100,
-        'num_epochs': 100,
+        'num_epochs': 200,
         'delay': 0,
         'learning_rate': 1e-6,   #1e-4
         'weight_decay': 5e-4,
@@ -80,9 +80,9 @@ def main():
         'adv_PGD' : True,
         'adv_CC' : False,
     }
-    PGD_param = {"epsilon" : 0.03,
+    PGD_param = {"epsilon" : 16. / 255,
                  "k" : 4,
-                 "a" : 0.01,
+                 "a" : 6. / 255,
                  "random_start" : True}
 
     param['workers'] = int(4 * (param['batch_size'] / 256))
@@ -127,8 +127,6 @@ def main():
     # Setup the model
     net = get_model()
     criterion = nn.CrossEntropyLoss().cuda()
-    optimizer = torch.optim.SGD(net.parameters(), lr=param['learning_rate'], momentum=param['momentum'],  weight_decay=param['weight_decay'])
-    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30, 60, 80], gamma=0.2)
 
     pre_weight_path = './saved_models/model_adv_009_038_038.pth.tar'         
 
@@ -145,9 +143,9 @@ def main():
     else:
         print("=> no checkpoint found at '{}'".format(pre_weight_path))
 
-    optimizer = torch.optim.RMSprop(net.parameters(), lr=0.5 * param['learning_rate'], weight_decay=param['weight_decay'])
-    optimizer_pgd = torch.optim.RMSprop(net.parameters(), lr=param['learning_rate'], weight_decay=param['weight_decay'])
-    optimizer_cc = torch.optim.RMSprop(net.parameters(), lr=param['learning_rate'], weight_decay=param['weight_decay'])
+
+    optimizer = torch.optim.SGD(net.parameters(), lr=param['learning_rate'], momentum=param['momentum'],  weight_decay=param['weight_decay'])
+    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30, 60, 80], gamma=0.2)
 
 
     if torch.cuda.is_available():
@@ -164,24 +162,26 @@ def main():
     loss_file = './loss_info_adv_v1_' + data_time_str + '.csv'
     with open(loss_file, 'w') as csvfile:
         writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        writer.writerow(["loss_ori","loss_adv","loss_cc","loss_ori_eval"])
+        writer.writerow(["loss_ori", "loss_pgd", "loss_cc", "loss_ori_eval", "loss_pgd_eval_mean"])
     print("Start training")
     # Train the model
     print('Abandoned initial accuracy. Set as 0.00')
     best_prec1 = 0.0
     for epoch in range(param['num_epochs']):
         net.train()
-        loss_list = []
+        loss_ori_list = []
+        loss_pgd_list = []
+        loss_cc_list = []
         print('Starting epoch %d / %d' % (epoch + 1, param['num_epochs']))
         for t, (x, y) in enumerate(tqdm(loader_train)):
-
             x_var, y_var = to_var(x), to_var(y.long())
             loss_ori = criterion(net(x_var), y_var)
+            loss_ori_list.append(loss_ori.cpu().detach().numpy())
+            '''
             optimizer.zero_grad()
             loss_ori.backward()
             optimizer.step()
-
-            loss_ori_np = loss_ori.cpu().detach().numpy()
+            '''
 
             # adversarial training
             if epoch + 1 > param['delay'] and param['adv_PGD']:
@@ -191,15 +191,13 @@ def main():
                 x_adv = adv_train(x, y_pred, net, criterion, adversary)
                 x_adv_var = to_var(x_adv)
                 loss_pgd = criterion(net(x_adv_var), y_var)
-            
-                optimizer_pgd.zero_grad()
-                loss_pgd.backward()
-                optimizer_pgd.step()
 
-            if 'loss_pgd' in locals():
-                loss_pgd_np = loss_pgd.cpu().detach().numpy()
-            else:
-                loss_pgd_np = loss_ori_np
+                loss = (loss_ori + loss_pgd) / 2
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                loss_pgd_list.append(loss_pgd.cpu().detach().numpy())
 
             if epoch + 1 > param['delay'] and param['adv_CC']:
                 def wrapped_model(x_np):
@@ -215,34 +213,59 @@ def main():
                 x_adv = torch.from_numpy(x_adv.transpose((0, 3, 1, 2)))
                 x_adv_var = to_var(x_adv)
                 loss_cc = criterion(net(x_adv_var), y_var)
+                loss_cc_list.append(loss_cc.cpu().detach().numpy())
             
-                optimizer_cc.zero_grad()
+                optimizer.zero_grad()
                 loss_cc.backward()
-                optimizer_cc.step()
+                optimizer.step()
 
-            if 'loss_cc' in locals():
-                loss_cc_np = loss_cc.cpu().detach().numpy()
-            else:
-                loss_cc_np = loss_ori_np
-            
-            loss_list.append(np.array([loss_ori_np, loss_pgd_np, loss_cc_np]))
-        loss_mean = np.mean(np.array(loss_list), axis=0)
+                
+        lr_scheduler.step()
+
+        if len(loss_ori_list) == 0:
+            loss_ori_mean = 0
+        else:
+            loss_ori_mean = np.mean(np.array(loss_ori_list))
+
+        if len(loss_pgd_list) == 0:
+            loss_pgd_mean = 0
+        else:
+            loss_pgd_mean = np.mean(np.array(loss_pgd_list))
+
+        if len(loss_cc_list) == 0:
+            loss_cc_mean = 0
+        else:
+            loss_cc_mean = np.mean(np.array(loss_cc_list))
 
         # get evaluate loss
         loss_eval_list = []
+        loss_pgd_eval_list = []
         for _, (x, y) in enumerate(tqdm(loader_val)):
             net.eval()
             x_var, y_var = to_var(x), to_var(y.long())
             output = net(x_var)
             loss_eval = criterion(output, y_var)
             loss_eval_list.append(loss_eval.cpu().detach().numpy())
-        loss_eval_mean = np.mean(np.array(loss_eval_list))
 
-        print("loss_ori , loss_pgd , loss_cc, loss_ori_eval: ", loss_mean[0], " , ", loss_mean[1], " , ", loss_mean[2], " , ", loss_eval_mean)
+            if epoch % 1 ==0 and param['adv_PGD']:
+                adversary = LinfPGDAttack(epsilon=PGD_param["epsilon"], k=PGD_param["k"], a=PGD_param["a"], random_start=PGD_param["random_start"])
+                y_pred = pred_batch(x, net)
+                x_adv = adv_train(x, y_pred, net, criterion, adversary)
+                x_adv_var = to_var(x_adv)
+                loss_pgd_eval = criterion(net(x_adv_var), y_var)
+                loss_pgd_eval_list.append(loss_pgd_eval.cpu().detach().numpy())
+
+        loss_eval_mean = np.mean(np.array(loss_eval_list))
+        if len(loss_pgd_eval_list) == 0:
+            loss_pgd_eval_mean = 0
+        else:
+            loss_pgd_eval_mean = np.mean(np.array(loss_pgd_eval_list))
+
+        print("loss_ori , loss_pgd , loss_cc, loss_ori_eval, loss_pgd_eval: ", loss_ori_mean, " , ", loss_pgd_mean, " , ", loss_cc_mean, " , ", loss_eval_mean, " , ", loss_pgd_eval_mean)
         # record loss info
         with open(loss_file, 'a') as csvfile:
             writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            writer.writerow([loss_mean[0], loss_mean[1], loss_mean[2], loss_eval_mean])
+            writer.writerow([loss_mean[0], loss_mean[1], loss_mean[2], loss_eval_mean, loss_pgd_eval_mean])
         
         def wrapped_model(x_np):
             x_np = x_np.transpose((0, 3, 1, 2))  # from NHWC to NCHW
@@ -253,7 +276,7 @@ def main():
             return result
         
         
-        if (epoch + 1) % 100 == 0:
+        if (epoch + 1) % 50 == 0:
             eval_prec = eval_kit.evaluate_bird_or_bicycle_model(wrapped_model, model_name='undefended_pytorch_resnet_adv_'+str(epoch)) #_on_trainingset
             print("epoch: ", epoch)
             print(eval_prec)
