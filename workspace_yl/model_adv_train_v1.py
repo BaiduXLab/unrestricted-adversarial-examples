@@ -81,8 +81,8 @@ def main():
         'adv_CC' : False,
     }
     PGD_param = {"epsilon" : 32. / 255,
-                 "k" : 8,
-                 "a" : 2. / 255,
+                 "k" : 4,
+                 "a" : 1. / 255,
                  "random_start" : True}
 
     param['workers'] = int(4 * (param['batch_size'] / 256))
@@ -128,7 +128,7 @@ def main():
     net = get_model()
     criterion = nn.CrossEntropyLoss().cuda()
 
-    pre_weight_path = './saved_models/model_adv_004_006_015.pth.tar'         
+    pre_weight_path = './saved_models/model_best_adv.pth.tar'         
 
     if os.path.isfile(pre_weight_path):
         print("=> loading checkpoint '{}'".format(pre_weight_path))
@@ -154,7 +154,7 @@ def main():
     net.train()
 
     data_time_str = datetime.now().ctime()
-    save_weights_dir = os.path.join('/data','adv_training_models',data_time_str)
+    save_weights_dir = os.path.join('/mnt','fs_huge','adv_training_models',data_time_str)
     os.mkdir(save_weights_dir)
 
     write_para_info(param, PGD_param, filepath = os.path.join(save_weights_dir, 'para_info.txt'))
