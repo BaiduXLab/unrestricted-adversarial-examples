@@ -252,7 +252,8 @@ def main():
                 y_pred = pred_batch(x, net)
                 x_adv = adv_train(x, y_pred, net, criterion, adversary)
                 x_adv_var = to_var(x_adv)
-                loss_pgd_eval = criterion(net(x_adv_var), y_var)
+                y_pred_adv = net(x_adv_var)
+                loss_pgd_eval = criterion(y_pred_adv, y_var)
                 loss_pgd_eval_list.append(loss_pgd_eval.cpu().detach().numpy())
 
         loss_eval_mean = np.mean(np.array(loss_eval_list))
