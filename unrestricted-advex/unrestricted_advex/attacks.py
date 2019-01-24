@@ -159,45 +159,41 @@ class SimpleSpatialAttack(Attack):
 
 
 class SpsaAttack(Attack):
-	name = 'spsa'
+    name = 'spsa'
 
-	def __init__(self, model, image_shape_hwc, epsilon=(16. / 255),
-							 num_steps=200, batch_size=32, is_debug=False):
-		self.graph = tf.Graph()
+    def __init__(self, model, image_shape_hwc, epsilon=(16. / 255),
+                                num_steps=200, batch_size=32, is_debug=False):
+        self.graph = tf.Graph()
 
-		with self.graph.as_default():
-			self.sess = tf.Session(graph=self.graph)
+        with self.graph.as_default():
+            self.sess = tf.Session(graph=self.graph)
 
-			self.x_input = tf.placeholder(tf.float32, shape=(1,) + image_shape_hwc)
-			self.y_label = tf.placeholder(tf.int32, shape=(1,))
+            self.x_input = tf.placeholder(tf.float32, shape=(1,) + image_shape_hwc)
+            self.y_label = tf.placeholder(tf.int32, shape=(1,))
 
-			self.model = model
-			attack = SPSA(CleverhansPyfuncModelWrapper(self.model), sess=self.sess)
-			self.x_adv = attack.generate(
-				self.x_input,
-				y=self.y_label,
-				epsilon=epsilon,
-				num_steps=num_steps,
-				early_stop_loss_threshold=-1.,
-				batch_size=batch_size,
-				is_debug=is_debug)
+            self.model = model
+            attack = SPSA(CleverhansPyfuncModelWrapper(self.model), sess=self.sess)
+            self.x_adv = attack.generate(
+                self.x_input,
+                y=self.y_label,
+                epsilon=epsilon,
+                num_steps=num_steps,
+                early_stop_loss_threshold=-1.,
+                batch_size=batch_size,
+                is_debug=is_debug)
+        self.graph.finalize()
 
-		self.graph.finalize()
+    def __call__(self, model, x_np, y_np):	# (4. / 255)):
+        if model != self.model:
+            raise ValueError('Cannot call spsa attack on different models')
+        del model	# unused except to check that we already wired it up right
 
-	def __call__(self, model, x_np, y_np):	# (4. / 255)):
-		if model != self.model:
-			raise ValueError('Cannot call spsa attack on different models')
-		del model	# unused except to check that we already wired it up right
-
-		with self.graph.as_default():
-			all_x_adv_np = []
-			for i in xrange(len(x_np)):
-				x_adv_np = self.sess.run(self.x_adv, feed_dict={
-					self.x_input: np.expand_dims(x_np[i], axis=0),
-					self.y_label: np.expand_dims(y_np[i], axis=0),
-				})
-				all_x_adv_np.append(x_adv_np)
-			return np.concatenate(all_x_adv_np)
+        with self.graph.as_default():
+            all_x_adv_np = []
+            for i in xrange(len(x_np)):
+                x_adv_np = self.sess.run(self.x_adv, feed_dict={ self.x_input: np.expand_dims(x_np[i], axis=0), self.y_label: np.expand_dims(y_np[i], axis=0), })
+                all_x_adv_np.append(x_adv_np)
+            return np.concatenate(all_x_adv_np)
 
 
 def corrupt_float32_image(x, corruption_name, severity):

@@ -1,7 +1,3 @@
-"""
-Adversarially train self model, pytorch
-"""
-
 import torch
 import torch.nn as nn
 import torchvision.datasets as datasets
@@ -12,7 +8,7 @@ import torch.nn.functional as F
 from adversarialbox.attacks import FGSMAttack, LinfPGDAttack
 from adversarialbox.train import adv_train, FGSM_train_rnd
 from adversarialbox.utils import to_var, pred_batch, test
-from model_train_eval import get_model
+from models.models import edge_resnet18
 from model_train_eval import AverageMeter, accuracy, save_checkpoint
 from unrestricted_advex import eval_kit, attacks
 import time
@@ -25,69 +21,7 @@ import pickle
 
 import pdb
 
-
-def validate_epoch(val_loader, model, criterion, gpu=None):
-    batch_time = AverageMeter()
-    losses = AverageMeter()
-    top1 = AverageMeter()
-
-    # switch to evaluate mode
-    model.eval()
-
-    with torch.no_grad():
-        end = time.time()
-        for i, (input, target) in enumerate(val_loader):
-            if gpu is not None:
-                input = input.cuda(gpu, non_blocking=True)
-            target = target.cuda(gpu, non_blocking=True)
-
-            # compute output
-            output = model(input)
-            loss = criterion(output, target)
-
-            # measure accuracy and record loss
-            prec1 = accuracy(output, target)
-            losses.update(loss.item(), input.size(0))
-            top1.update(prec1.item(), input.size(0))
-
-            # measure elapsed time
-            batch_time.update(time.time() - end)
-            end = time.time()
-            '''
-            if i % 100 == 0:
-                print('Test: [{0}/{1}]\t'
-                    'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                    'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                    'Prec@1 {top1.val:.3f} ({top1.avg:.3f})\t'.format(
-                    i, len(val_loader), batch_time=batch_time, loss=losses,
-                    top1=top1))
-            '''
-
-        print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
-
-    return top1.avg
-
-def main():
-    # Hyper-parameters
-    param = {
-        'batch_size': 8,
-        'test_batch_size': 100,
-        'num_epochs': 200,
-        'delay': 0,
-        'learning_rate': 1e-6,   #1e-4
-        'weight_decay': 5e-4,
-        'momentum' : 0.9,
-        'adv_PGD' : True,
-        'adv_CC' : False,
-    }
-    PGD_param = {"epsilon" : 32. / 255,
-                 "k" : 4,
-                 "a" : 1. / 255,
-                 "random_start" : True}
-
-    param['workers'] = int(4 * (param['batch_size'] / 256))
-
-
+def load_data(param):
     # Data loading code
     data_path = '/home/yantao/datasets/bird_or_bicycle/0.0.4/'
     
@@ -122,68 +56,109 @@ def main():
                                                                                                 ])),
                                             batch_size=param['batch_size'], shuffle=False,
                                             num_workers=param['workers'], pin_memory=True)
+    return loader_train, loader_val
 
+def write_para_info(param, PGD_param, filepath = './para_info.txt'):
+    with open(filepath, 'w') as file:
+        file.write("param: " + '\n')
+        for key, value in param.items():
+            file.write(key + " : " + str(value) + '\n')
+        file.write('\n')
+        file.write("PGDparam: " + '\n')
+        for key, value in PGD_param.items():
+            file.write(key + " : " + str(value) + '\n')
 
-    # Setup the model
-    net = get_model()
+def main():
+    # Hyper-parameters
+    is_evaluate = False
+    param = {
+        'batch_size': 4,
+        'num_epochs': 200,
+        'delay': 0,
+        'learning_rate': 1e-2,   #1e-4
+        'weight_decay': 5e-4,
+        'momentum' : 0.9,
+        'adv_PGD' : False,
+        'adv_spatial_SPSA' : True,
+        'net_type' : 'edge_resnet18',
+        
+    }
+    PGD_param = {"epsilon" : 32. / 255,
+                 "k" : 4,
+                 "a" : 1. / 255,
+                 "random_start" : True}
 
-    pre_weight_path = './saved_models/model_best_adv.pth.tar'         
+    param['workers'] = int(4 * (param['batch_size'] / 256))
 
-    if os.path.isfile(pre_weight_path):
-        print("=> loading checkpoint '{}'".format(pre_weight_path))
-        checkpoint = torch.load(pre_weight_path)
-        #start_epoch = checkpoint['epoch']
-        best_prec1 = checkpoint['best_prec1']
-        print('Initiate accuracy: ', best_prec1)
-        net.load_state_dict(checkpoint['state_dict'])
-        #optimizer.load_state_dict(checkpoint['optimizer'])
-        print("=> loaded checkpoint '{}' (epoch {})"
-            .format(pre_weight_path, checkpoint['epoch']))
-    else:
-        print("=> no checkpoint found at '{}'".format(pre_weight_path))
+    # load bird or bicycle data
+    loader_train, loader_val = load_data(param)
+
+    # load model
+    if param['net_type'] == 'edge_resnet18':
+        net = edge_resnet18()
 
     if torch.cuda.is_available():
         print('CUDA enabled.')
-        net.cuda()
-        #net = torch.nn.DataParallel(net).cuda()
+        #net.cuda()
+        net = torch.nn.DataParallel(net).cuda()
+
+    
+    pre_weight_path = "/home/yantao/workspace/edge_resnet18/Thu Jan 24 03:41:28 2019/undefended_pytorch_resnet_adv_100.pth.tar"
+    if os.path.isfile(pre_weight_path):
+        print("=> loading checkpoint '{}'".format(pre_weight_path))
+        checkpoint = torch.load(pre_weight_path)
+        net.load_state_dict(checkpoint['state_dict'])
+        param['net_type'] = checkpoint['arch']
+    
+    
+    if is_evaluate:
+        def wrapped_model(x_np):
+                x_np = x_np.transpose((0, 3, 1, 2))  # from NHWC to NCHW
+                x_t = torch.from_numpy(x_np).cuda()
+                net.eval()
+                with torch.no_grad():
+                    result = net(x_t).cpu().numpy()
+                return result
+            
+        eval_prec = eval_kit.evaluate_bird_or_bicycle_model(wrapped_model, model_name='edge_resnet18_adv_eval') #_on_trainingset
+
+        print(eval_prec)
+        quit()
+    
 
     criterion = nn.CrossEntropyLoss().cuda()
-    optimizer = torch.optim.SGD(net.parameters(), lr=param['learning_rate'], momentum=param['momentum'],  weight_decay=param['weight_decay'])
+    #optimizer = torch.optim.SGD(net.parameters(), lr=param['learning_rate'], momentum=param['momentum'],  weight_decay=param['weight_decay'])
+    optimizer = torch.optim.Adam(net.parameters(), lr=param['learning_rate'])
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30, 60, 80], gamma=0.2)
 
-    net.train()
-
+    # create log
     data_time_str = datetime.now().ctime()
-    save_weights_dir = os.path.join('/home/yantao/workspace','adv_training_models',data_time_str)
+    save_weights_dir = os.path.join('/home/yantao/workspace', param['net_type'], data_time_str)
     os.mkdir(save_weights_dir)
 
     write_para_info(param, PGD_param, filepath = os.path.join(save_weights_dir, 'para_info.txt'))
 
-    loss_file = './loss_info_adv_v1_' + data_time_str + '.csv'
+    loss_file = './loss_info_' + data_time_str + '.csv'
     with open(loss_file, 'w') as csvfile:
         writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        writer.writerow(["loss_ori", "loss_pgd", "loss_cc", "loss_ori_eval", "loss_pgd_eval_mean"])
-    
+        writer.writerow(["loss_ori", "loss_pgd", "loss_spatial_SPSA_mean", "loss_ori_eval", "loss_pgd_eval_mean"])
+
     # Train the model
     print("Start training")
-    print('Abandoned initial accuracy. Set as 0.00')
-    best_prec1 = 0.0
     for epoch in range(param['num_epochs']):
         net.train()
-        loss_ori_list = []
-        loss_pgd_list = []
-        loss_cc_list = []
+        loss_ori_mean = AverageMeter()
+        loss_pgd_mean = AverageMeter()
+        loss_spatial_SPSA_mean = AverageMeter()
         print('Starting epoch %d / %d' % (epoch + 1, param['num_epochs']))
-        for t, (x, y) in enumerate(tqdm(loader_train)):
+        for _, (x, y) in enumerate(tqdm(loader_train)):
             x_var, y_var = to_var(x), to_var(y.long())
             loss_ori = criterion(net(x_var), y_var)
-            loss_ori_list.append(loss_ori.cpu().detach().numpy())
-            '''
+            
             optimizer.zero_grad()
             loss_ori.backward()
             optimizer.step()
-            '''
-
+            
             # adversarial training
             if epoch + 1 > param['delay'] and param['adv_PGD']:
                 adversary = LinfPGDAttack(epsilon=PGD_param["epsilon"], k=PGD_param["k"], a=PGD_param["a"], random_start=PGD_param["random_start"])
@@ -193,14 +168,15 @@ def main():
                 x_adv_var = to_var(x_adv)
                 loss_pgd = criterion(net(x_adv_var), y_var)
 
-                loss = (loss_ori + loss_pgd) / 2
+                loss = loss_pgd
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-                loss_pgd_list.append(loss_pgd.cpu().detach().numpy())
+                loss_pgd_mean.update(loss_pgd.cpu().detach().numpy())
 
-            if epoch + 1 > param['delay'] and param['adv_CC']:
+            if epoch + 1 > param['delay'] and param['adv_spatial_SPSA']:
+
                 def wrapped_model(x_np):
                     x_np = x_np.transpose((0, 3, 1, 2))  # from NHWC to NCHW
                     x_t = torch.from_numpy(x_np).cuda()
@@ -209,44 +185,41 @@ def main():
                         result = net(x_t).cpu().numpy()
                     return result
 
-                adversary = attacks.CommonCorruptionsAttack()
+                adversary = attacks.SpsaWithRandomSpatialAttack(wrapped_model, 
+                                                                image_shape_hwc=(224, 224, 3), 
+                                                                spatial_limits=[18, 18, 30], 
+                                                                black_border_size=20, 
+                                                                epsilon=(16. / 255), 
+                                                                num_steps=32,
+                                                               )
+                
                 x_adv = adversary(wrapped_model, x.numpy().transpose((0, 2, 3, 1)), y.numpy())
                 x_adv = torch.from_numpy(x_adv.transpose((0, 3, 1, 2)))
                 x_adv_var = to_var(x_adv)
-                loss_cc = criterion(net(x_adv_var), y_var)
-                loss_cc_list.append(loss_cc.cpu().detach().numpy())
-            
+                loss_spatial_SPSA = criterion(net(x_adv_var), y_var)
+
+                loss = loss_spatial_SPSA
                 optimizer.zero_grad()
-                loss_cc.backward()
+                loss.backward()
                 optimizer.step()
 
-                
+                loss_spatial_SPSA_mean.update(loss_spatial_SPSA.cpu().detach().numpy())
+            
+
+
+            loss_ori_mean.update(loss_ori.cpu().detach().numpy())
+
         lr_scheduler.step()
 
-        if len(loss_ori_list) == 0:
-            loss_ori_mean = 0
-        else:
-            loss_ori_mean = np.mean(np.array(loss_ori_list))
-
-        if len(loss_pgd_list) == 0:
-            loss_pgd_mean = 0
-        else:
-            loss_pgd_mean = np.mean(np.array(loss_pgd_list))
-
-        if len(loss_cc_list) == 0:
-            loss_cc_mean = 0
-        else:
-            loss_cc_mean = np.mean(np.array(loss_cc_list))
-
         # get evaluate loss
-        loss_eval_list = []
-        loss_pgd_eval_list = []
+        loss_eval_mean = AverageMeter()
+        loss_pgd_eval_mean = AverageMeter()
         for _, (x, y) in enumerate(tqdm(loader_val)):
             net.eval()
             x_var, y_var = to_var(x), to_var(y.long())
+
             output = net(x_var)
             loss_eval = criterion(output, y_var)
-            loss_eval_list.append(loss_eval.cpu().detach().numpy())
 
             if epoch % 1 ==0 and param['adv_PGD']:
                 adversary = LinfPGDAttack(epsilon=PGD_param["epsilon"], k=PGD_param["k"], a=PGD_param["a"], random_start=PGD_param["random_start"])
@@ -255,20 +228,17 @@ def main():
                 x_adv_var = to_var(x_adv)
                 y_pred_adv = net(x_adv_var)
                 loss_pgd_eval = criterion(y_pred_adv, y_var)
-                loss_pgd_eval_list.append(loss_pgd_eval.cpu().detach().numpy())
 
-        loss_eval_mean = np.mean(np.array(loss_eval_list))
-        if len(loss_pgd_eval_list) == 0:
-            loss_pgd_eval_mean = 0
-        else:
-            loss_pgd_eval_mean = np.mean(np.array(loss_pgd_eval_list))
+                loss_pgd_eval_mean.update(loss_pgd_eval.cpu().detach().numpy())
+            
+            loss_eval_mean.update(loss_eval.cpu().detach().numpy())
 
-        print("loss_ori , loss_pgd , loss_cc, loss_ori_eval, loss_pgd_eval: ", loss_ori_mean, " , ", loss_pgd_mean, " , ", loss_cc_mean, " , ", loss_eval_mean, " , ", loss_pgd_eval_mean)
+        print("loss_ori , loss_pgd , loss_spatial_SPSA_mean , loss_ori_eval, loss_pgd_eval: ", loss_ori_mean.avg, " , ", loss_pgd_mean.avg, " , ", loss_spatial_SPSA_mean.avg, " , " , loss_eval_mean.avg, " , ", loss_pgd_eval_mean.avg)
         # record loss info
         with open(loss_file, 'a') as csvfile:
             writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            writer.writerow([loss_ori_mean, loss_pgd_mean, loss_cc_mean, loss_eval_mean, loss_pgd_eval_mean])
-        
+            writer.writerow([loss_ori_mean.avg, loss_pgd_mean.avg, loss_spatial_SPSA_mean.avg, loss_eval_mean.avg, loss_pgd_eval_mean.avg])
+
         def wrapped_model(x_np):
             x_np = x_np.transpose((0, 3, 1, 2))  # from NHWC to NCHW
             x_t = torch.from_numpy(x_np).cuda()
@@ -282,34 +252,22 @@ def main():
             eval_prec = eval_kit.evaluate_bird_or_bicycle_model(wrapped_model, model_name='undefended_pytorch_resnet_adv_'+str(epoch)) #_on_trainingset
             print("epoch: ", epoch)
             print(eval_prec)
+
+        # save model for each epoch
+        save_dic = {
+            'arch' : param['net_type'],
+            'state_dict' : net.state_dict()
+        }
+        save_model(save_dic, filename=os.path.join(save_weights_dir, 'undefended_pytorch_resnet_adv_' + str(epoch) + '.pth.tar'))
         
 
-        prec1 = 0.0
-        is_best = prec1 >= best_prec1
-        best_prec1 = max(prec1, best_prec1)
-        save_checkpoint({
-        'epoch': epoch + 1,
-        'arch': 'RenNet50',
-        'state_dict': net.state_dict(),
-        'best_prec1': best_prec1,
-        'optimizer': optimizer.state_dict(),
-        }, is_best, net, filename=os.path.join(save_weights_dir, 'undefended_pytorch_resnet_adv_' + str(epoch) + '.pth.tar'))
+def save_model(save_dic, filename):
+    torch.save(save_dic, filename)
+        
 
-        #torch.save(net.state_dict(), 'state_dict_adv_'+ str(epoch) +'.pkl')
 
-    #test(net, loader_val)
 
-    #torch.save(net.state_dict(), 'state_dict_adv_final.pkl')
 
-def write_para_info(param, PGD_param, filepath = './para_info.txt'):
-    with open(filepath, 'w') as file:
-        file.write("param: " + '\n')
-        for key, value in param.items():
-            file.write(key + " : " + str(value) + '\n')
-        file.write('\n')
-        file.write("PGDparam: " + '\n')
-        for key, value in PGD_param.items():
-            file.write(key + " : " + str(value) + '\n')
 
 
 if __name__ == '__main__':
