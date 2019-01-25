@@ -11,6 +11,7 @@ from adversarialbox.utils import to_var, pred_batch, test, attack_over_test_data
 from models.models import edge_resnet18
 from model_train_eval import AverageMeter, accuracy, save_checkpoint
 from unrestricted_advex import eval_kit, attacks
+from loss_func.loss_functions import FocalLoss
 import time
 import os
 from datetime import datetime
@@ -79,8 +80,9 @@ def main():
         'learning_rate': 1e-2,   #1e-4
         'weight_decay': 5e-4,
         'momentum' : 0.9,
-        'adv_PGD' : False,
-        'adv_spatial_SPSA' : True,
+        'focal_loss' : False,
+        'adv_PGD' : True,
+        'adv_spatial_SPSA' : False,
         'net_type' : 'edge_resnet18',
         
     }
@@ -138,8 +140,11 @@ def main():
         print("accuracy: " , str(acc))
         quit()
     
+    if param['focal_loss']:
+        criterion = FocalLoss(gamma=2).cuda()
+    else:
+        criterion = nn.CrossEntropyLoss().cuda()
 
-    criterion = nn.CrossEntropyLoss().cuda()
     #optimizer = torch.optim.SGD(net.parameters(), lr=param['learning_rate'], momentum=param['momentum'],  weight_decay=param['weight_decay'])
     optimizer = torch.optim.Adam(net.parameters(), lr=param['learning_rate'])
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30, 60, 80], gamma=0.2)
