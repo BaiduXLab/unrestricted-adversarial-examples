@@ -3,6 +3,8 @@ import torch
 from torch.autograd import Variable
 import torch.nn as nn
 from torch.utils.data import sampler
+import copy
+from tqdm import tqdm
 
 import pdb
 
@@ -47,7 +49,7 @@ def pred_batch(x, model):
     return torch.from_numpy(y_pred)
 
 
-def test(model, loader, blackbox=False, hold_out_size=None):
+def test(model, loader):
     """
     Check model accuracy on model based on loader (train or test)
     """
@@ -55,46 +57,42 @@ def test(model, loader, blackbox=False, hold_out_size=None):
 
     num_correct, num_samples = 0, len(loader.dataset)
 
-    if blackbox:
-        num_samples -= hold_out_size
-
     for x, y in loader:
         x_var = to_var(x, volatile=True)
         scores = model(x_var)
         _, preds = scores.data.cpu().max(1)
         num_correct += (preds == y).sum()
 
-    acc = float(num_correct)/float(num_samples)
+    acc = float(num_correct) / float(num_samples)
     print('Got %d/%d correct (%.2f%%) on the clean data' 
         % (num_correct, num_samples, 100 * acc))
 
     return acc
 
 
-def attack_over_test_data(model, adversary, param, loader_test, oracle=None):
+def attack_over_test_data(model, adversary, loader_test):
     """
     Given target model computes accuracy on perturbed data
     """
+    model_cp = copy.deepcopy(model)
+    for p in model_cp.parameters():
+        p.requires_grad = False
+    model_cp.eval()
+    adversary.model = model_cp
+
     total_correct = 0
     total_samples = len(loader_test.dataset)
 
-    # For black-box
-    if oracle is not None:
-        total_samples -= param['hold_out_size']
-
-    for t, (X, y) in enumerate(loader_test):
+    for t, (X, y) in enumerate(tqdm(loader_test)):
         y_pred = pred_batch(X, model)
         X_adv = adversary.perturb(X.numpy(), y_pred)
         X_adv = torch.from_numpy(X_adv)
 
-        if oracle is not None:
-            y_pred_adv = pred_batch(X_adv, oracle)
-        else:
-            y_pred_adv = pred_batch(X_adv, model)
+        y_pred_adv = pred_batch(X_adv, model)
         
         total_correct += (y_pred_adv.numpy() == y.numpy()).sum()
 
-    acc = total_correct/total_samples
+    acc = total_correct / total_samples
 
     print('Got %d/%d correct (%.2f%%) on the perturbed data' 
         % (total_correct, total_samples, 100 * acc))
