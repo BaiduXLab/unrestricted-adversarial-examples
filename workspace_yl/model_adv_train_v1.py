@@ -80,7 +80,7 @@ def main():
         'learning_rate': 1e-5,   #1e-4
         'weight_decay': 5e-4,
         'momentum' : 0.9,
-        'focal_loss' : False,
+        'focal_loss' : True,
         'adv_PGD' : True,
         'adv_CC' : False,
     }
@@ -174,7 +174,7 @@ def main():
     net.train()
 
     data_time_str = datetime.now().ctime()
-    save_weights_dir = os.path.join('/home/yantao/workspace','adv_training_models',data_time_str)
+    save_weights_dir = os.path.join('/data/adv_training_models',data_time_str)
     os.mkdir(save_weights_dir)
 
     write_para_info(param, PGD_param, filepath = os.path.join(save_weights_dir, 'para_info.txt'))
@@ -198,12 +198,11 @@ def main():
             x_var, y_var = to_var(x), to_var(y.long())
             loss_ori = criterion(net(x_var), y_var)
             loss_ori_list.append(loss_ori.cpu().detach().numpy())
-            '''
+            
             optimizer.zero_grad()
             loss_ori.backward()
             optimizer.step()
-            '''
-
+            
             # adversarial training
             if epoch + 1 > param['delay'] and param['adv_PGD']:
                 adversary = LinfPGDAttack(epsilon=PGD_param["epsilon"], k=PGD_param["k"], a=PGD_param["a"], random_start=PGD_param["random_start"])
