@@ -11,7 +11,7 @@ import torch.nn.functional as F
 
 from adversarialbox.attacks import FGSMAttack, LinfPGDAttack
 from adversarialbox.train import adv_train, FGSM_train_rnd
-from adversarialbox.utils import to_var, pred_batch, test
+from adversarialbox.utils import to_var, pred_batch, test, attack_over_test_data
 from model_train_eval import get_model
 from model_train_eval import AverageMeter, accuracy, save_checkpoint
 from unrestricted_advex import eval_kit, attacks
@@ -69,20 +69,22 @@ def validate_epoch(val_loader, model, criterion, gpu=None):
 
 def main():
     # Hyper-parameters
+    is_evaluate_PGD = False
+
     param = {
         'batch_size': 8,
         'test_batch_size': 100,
         'num_epochs': 200,
         'delay': 0,
-        'learning_rate': 1e-6,   #1e-4
+        'learning_rate': 1e-5,   #1e-4
         'weight_decay': 5e-4,
         'momentum' : 0.9,
         'adv_PGD' : True,
         'adv_CC' : False,
     }
-    PGD_param = {"epsilon" : 32. / 255,
-                 "k" : 4,
-                 "a" : 1. / 255,
+    PGD_param = {"epsilon" : 16. / 255,
+                 "k" : 8,
+                 "a" : 2. / 255,
                  "random_start" : True}
 
     param['workers'] = int(4 * (param['batch_size'] / 256))
@@ -127,7 +129,7 @@ def main():
     # Setup the model
     net = get_model()
 
-    pre_weight_path = './saved_models/model_best_adv.pth.tar'         
+    pre_weight_path = "/home/yantao/workspace/projects/baidu/unrestricted-adversarial-examples/workspace_yl/saved_models/renet50_zhenyu_149.tar"      
 
     if os.path.isfile(pre_weight_path):
         print("=> loading checkpoint '{}'".format(pre_weight_path))
@@ -147,6 +149,19 @@ def main():
         net.cuda()
         #net = torch.nn.DataParallel(net).cuda()
 
+
+    if is_evaluate_PGD:
+        PGD_param_eval = {"epsilon" : 16. / 255,
+                          "k" : 8,
+                          "a" : 2. / 255,
+                          "random_start" : True,
+                         }
+        adversary = LinfPGDAttack(epsilon=PGD_param_eval["epsilon"], k=PGD_param_eval["k"], a=PGD_param_eval["a"], random_start=PGD_param_eval["random_start"])
+        acc = attack_over_test_data(net, adversary, loader_val)
+        print(PGD_param_eval)
+        print("accuracy: " , str(acc))
+        quit()
+
     criterion = nn.CrossEntropyLoss().cuda()
     optimizer = torch.optim.SGD(net.parameters(), lr=param['learning_rate'], momentum=param['momentum'],  weight_decay=param['weight_decay'])
     lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30, 60, 80], gamma=0.2)
@@ -159,7 +174,7 @@ def main():
 
     write_para_info(param, PGD_param, filepath = os.path.join(save_weights_dir, 'para_info.txt'))
 
-    loss_file = './loss_info_adv_v1_' + data_time_str + '.csv'
+    loss_file = './loss_info_res50_adv_v1_' + data_time_str + '.csv'
     with open(loss_file, 'w') as csvfile:
         writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         writer.writerow(["loss_ori", "loss_pgd", "loss_cc", "loss_ori_eval", "loss_pgd_eval_mean"])

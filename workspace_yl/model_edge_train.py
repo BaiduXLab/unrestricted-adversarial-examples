@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 from adversarialbox.attacks import FGSMAttack, LinfPGDAttack
 from adversarialbox.train import adv_train, FGSM_train_rnd
-from adversarialbox.utils import to_var, pred_batch, test
+from adversarialbox.utils import to_var, pred_batch, test, attack_over_test_data
 from models.models import edge_resnet18
 from model_train_eval import AverageMeter, accuracy, save_checkpoint
 from unrestricted_advex import eval_kit, attacks
@@ -70,7 +70,8 @@ def write_para_info(param, PGD_param, filepath = './para_info.txt'):
 
 def main():
     # Hyper-parameters
-    is_evaluate = False
+    is_evaluate_PGD = False
+    is_evaluate_black = False
     param = {
         'batch_size': 4,
         'num_epochs': 200,
@@ -111,7 +112,7 @@ def main():
         param['net_type'] = checkpoint['arch']
     
     
-    if is_evaluate:
+    if is_evaluate_black:
         def wrapped_model(x_np):
                 x_np = x_np.transpose((0, 3, 1, 2))  # from NHWC to NCHW
                 x_t = torch.from_numpy(x_np).cuda()
@@ -123,6 +124,18 @@ def main():
         eval_prec = eval_kit.evaluate_bird_or_bicycle_model(wrapped_model, model_name='edge_resnet18_adv_eval') #_on_trainingset
 
         print(eval_prec)
+        quit()
+
+    if is_evaluate_PGD:
+        PGD_param_eval = {"epsilon" : 16. / 255,
+                          "k" : 8,
+                          "a" : 2. / 255,
+                          "random_start" : True,
+                         }
+        adversary = LinfPGDAttack(epsilon=PGD_param_eval["epsilon"], k=PGD_param_eval["k"], a=PGD_param_eval["a"], random_start=PGD_param_eval["random_start"])
+        acc = attack_over_test_data(net, adversary, loader_val)
+        print(PGD_param_eval)
+        print("accuracy: " , str(acc))
         quit()
     
 
