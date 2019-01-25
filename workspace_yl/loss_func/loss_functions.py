@@ -13,8 +13,8 @@ def one_hot(index, classes):
     ones = 1.
 
     if isinstance(index, Variable):
-        ones = Variable(torch.Tensor(index.size()).fill_(1))
-        mask = Variable(mask, volatile=index.volatile)
+        ones = Variable(torch.Tensor(index.size()).fill_(1)).cuda()
+        mask = Variable(mask, volatile=index.volatile).cuda()
 
     return mask.scatter_(1, index, ones)
 

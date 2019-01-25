@@ -174,7 +174,7 @@ def main():
     net.train()
 
     data_time_str = datetime.now().ctime()
-    save_weights_dir = os.path.join('/data/adv_training_models',data_time_str)
+    save_weights_dir = os.path.join('/home/yantao/workspace/adv_training_models/', data_time_str)
     os.mkdir(save_weights_dir)
 
     write_para_info(param, PGD_param, filepath = os.path.join(save_weights_dir, 'para_info.txt'))
@@ -212,7 +212,7 @@ def main():
                 x_adv_var = to_var(x_adv)
                 loss_pgd = criterion(net(x_adv_var), y_var)
 
-                loss = (loss_ori + loss_pgd) / 2
+                loss = loss_pgd
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
