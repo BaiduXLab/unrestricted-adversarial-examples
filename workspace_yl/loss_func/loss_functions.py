@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
+import pdb
 
 def one_hot(index, classes):
     size = index.size() + (classes,)
@@ -21,8 +22,9 @@ def one_hot(index, classes):
 
 class FocalLoss(nn.Module):
 
-    def __init__(self, gamma=0, eps=1e-7):
+    def __init__(self, gamma=0, eps=1e-7, reduction='mean'):
         super(FocalLoss, self).__init__()
+        self.reduction = reduction
         self.gamma = gamma
         self.eps = eps
 
@@ -34,4 +36,26 @@ class FocalLoss(nn.Module):
         loss = -1 * y * torch.log(logit) # cross entropy
         loss = loss * (1 - logit) ** self.gamma # focal loss
 
-        return loss.sum()
+        if self.reduction == 'mean':
+            return loss.sum() / loss.shape[0]
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:
+            raise ValueError('Invilid reduction method.')
+
+class ContrastiveLoss(torch.nn.Module):
+    """
+    Contrastive loss function.
+    Based on: http://yann.lecun.com/exdb/publis/pdf/hadsell-chopra-lecun-06.pdf
+    """
+
+    def __init__(self, margin=0.8):
+        super(ContrastiveLoss, self).__init__()
+        self.margin = margin
+
+    def forward(self, output1, output2, label):
+        euclidean_distance = F.pairwise_distance(output1, output2)
+        loss_contrastive = torch.mean((1-label) * torch.pow(euclidean_distance, 2) + (label) * torch.pow(torch.clamp(self.margin - euclidean_distance, min=0.0), 2))
+
+
+        return loss_contrastive

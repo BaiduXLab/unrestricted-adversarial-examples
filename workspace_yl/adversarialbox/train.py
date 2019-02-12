@@ -15,7 +15,7 @@ from adversarialbox.utils import truncated_normal
 
 
 
-def adv_train(X, y, model, criterion, adversary):
+def adv_train(X, y, model, criterion, adversary, multi_out=False):
     """
     Adversarial training. Returns pertubed mini batch.
     """
@@ -29,6 +29,7 @@ def adv_train(X, y, model, criterion, adversary):
     model_cp.eval()
     
     adversary.model = model_cp
+    adversary.multi_out = multi_out
 
     X_adv = adversary.perturb(X.numpy(), y)
 

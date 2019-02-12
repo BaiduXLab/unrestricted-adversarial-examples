@@ -74,13 +74,15 @@ class FGSMAttack(object):
 
 class LinfPGDAttack(object):
     def __init__(self, model=None, epsilon=0.3, k=40, a=0.01, 
-        random_start=True):
+        random_start=True, multi_out=False):
         """
         Attack parameter initialization. The attack performs k steps of
         size a, while always staying within epsilon from the initial
         point.
         https://github.com/MadryLab/mnist_challenge/blob/master/pgd_attack.py
         """
+
+        self.multi_out = multi_out
         self.model = model
         self.epsilon = epsilon
         self.k = k
@@ -104,8 +106,10 @@ class LinfPGDAttack(object):
             y_var = to_var(torch.LongTensor(y))
 
             scores = self.model(X_var)
+            if self.multi_out:
+                scores = scores[0]
             loss = self.loss_fn(scores, y_var)
-            loss.backward()
+            loss.backward(retain_graph=True)
             grad = X_var.grad.data.cpu().numpy()
 
             X += self.a * np.sign(grad)
