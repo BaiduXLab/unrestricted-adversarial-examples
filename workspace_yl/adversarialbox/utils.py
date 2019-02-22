@@ -41,11 +41,15 @@ def to_var(x, requires_grad=False, volatile=False):
     return Variable(x, requires_grad=requires_grad, volatile=volatile)
 
 
-def pred_batch(x, model):
+def pred_batch(x, model, multi_out=False):
     """
     batch prediction helper
     """
-    y_pred = np.argmax(model(to_var(x)).data.cpu().numpy(), axis=1)
+    if multi_out:
+        y_out, _ = model(to_var(x))
+    else:
+        y_out = model(to_var(x))
+    y_pred = np.argmax(y_out.data.cpu().numpy(), axis=1)
     return torch.from_numpy(y_pred)
 
 
@@ -70,7 +74,7 @@ def test(model, loader):
     return acc
 
 
-def attack_over_test_data(model, adversary, loader_test):
+def attack_over_test_data(model, adversary, loader_test, multi_out=False):
     """
     Given target model computes accuracy on perturbed data
     """
@@ -79,16 +83,17 @@ def attack_over_test_data(model, adversary, loader_test):
         p.requires_grad = False
     model_cp.eval()
     adversary.model = model_cp
+    adversary.multi_out = multi_out
 
     total_correct = 0
     total_samples = len(loader_test.dataset)
 
     for t, (X, y) in enumerate(tqdm(loader_test)):
-        y_pred = pred_batch(X, model)
+        y_pred = pred_batch(X, model, multi_out=multi_out)
         X_adv = adversary.perturb(X.numpy(), y_pred)
         X_adv = torch.from_numpy(X_adv)
 
-        y_pred_adv = pred_batch(X_adv, model)
+        y_pred_adv = pred_batch(X_adv, model, multi_out=multi_out)
         
         total_correct += (y_pred_adv.numpy() == y.numpy()).sum()
 
