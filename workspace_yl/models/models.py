@@ -6,6 +6,8 @@ from scipy.signal import gaussian
 from models.squeezenet import SqueezeNet
 from models.ResNet import resnet18, resnet50
 
+import torchvision.models as torchmodels
+
 import pdb
 
 class AdaptiveThresh_function(torch.autograd.Function):
@@ -188,13 +190,36 @@ class resnet50_ori(nn.Module):
         _resnet50 = resnet50(pretrained=isPretrain, n_channels=n_channels)
         self.res50_conv = nn.Sequential(*list(_resnet50.children())[:-1])
         self.fc = nn.Linear(2048, num_classes)
+        #self.bn = nn.BatchNorm1d(2048)
 
     def forward(self, x):
+        
         x = self.res50_conv(x)
         res50_fe = x.view(x.size(0), -1)
+        #res50_fe_bn = self.bn(res50_fe)
         x = self.fc(res50_fe)
         if self.fe_branch:
             return x, res50_fe
+        else:
+            return x
+        
+
+class resnet18_ori(nn.Module):
+    def __init__(self, n_channels=3, num_classes=2, fe_branch=False, isPretrain=False):
+        super(resnet18_ori, self).__init__()
+        self.fe_branch = fe_branch
+        _resnet18 = resnet18(pretrained=isPretrain, n_channels=n_channels)
+        self.res18_conv = nn.Sequential(*list(_resnet18.children())[:-1])
+        self.fc = nn.Linear(512, num_classes)
+        #self.bn = nn.BatchNorm1d(2048)
+
+    def forward(self, x):
+        x = self.res18_conv(x)
+        res18_fe = x.view(x.size(0), -1)
+        #res18_fe_bn = self.bn(res18_fe)
+        x = self.fc(res18_fe)
+        if self.fe_branch:
+            return x, res18_fe
         else:
             return x
         

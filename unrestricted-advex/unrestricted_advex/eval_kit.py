@@ -276,6 +276,8 @@ def evaluate_bird_or_bicycle_model(model_fn, dataset_iter=None, model_name=None)
   attack_list = [
     attacks.CleanData(),
 
+    attacks.SpsaAttack(model_fn, bird_or_bicycle_shape, epsilon=(16. / 255), num_steps=40, batch_size=32, is_debug=False),
+
     attacks.SimpleSpatialAttack(spatial_limits=bird_or_bicycle_spatial_limits, grid_granularity=[5, 5, 31], black_border_frac=0.15, ),
 
     attacks.CommonCorruptionsAttack(),
