@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
+import torchsample
 from torch.autograd import Variable
 import torch.nn.functional as F
 import time
@@ -12,7 +13,7 @@ import csv
 import numpy as np
 import pickle
 
-from adversarialbox.attacks import FGSMAttack, LinfPGDAttack
+from adversarialbox.attacks import FGSMAttack, LinfPGDAttack, CommonCorruptionsAttack
 from adversarialbox.train import adv_train, FGSM_train_rnd
 from adversarialbox.utils import to_var, pred_batch, test, attack_over_test_data
 from models.models import edge_resnet18, edge_resnet50, Contrastive_res50, resnet50_ori
@@ -26,7 +27,7 @@ def load_data(param):
     # Data loading code
     data_path = '/home/yantao/datasets/bird_or_bicycle/0.0.4/'
     
-    traindirs = [os.path.join(data_path, partition) for partition in ['extras']]
+    traindirs = [os.path.join(data_path, partition) for partition in ['extras']] #extras
     # Use train as validation because it is IID with the test set
     valdir = os.path.join(data_path, 'train')
     testdir = os.path.join(data_path, 'test')
@@ -39,11 +40,12 @@ def load_data(param):
                                             std=[0.229, 0.224, 0.225])
 
     train_dataset = [datasets.ImageFolder(traindir, transforms.Compose([
-                                            #transforms.RandomResizedCrop(224),
+                                            transforms.RandomResizedCrop(224),
                                             transforms.RandomCrop(224, padding=16),
                                             transforms.RandomHorizontalFlip(),
                                             transforms.ToTensor(),
-                                            _unused_normalize,
+                                            torchsample.transforms.Rotate(np.random.randint(60) - 30),
+                                            #_unused_normalize,
                                             ]))
                         for traindir in traindirs]
     if len(train_dataset) == 1:
@@ -56,7 +58,7 @@ def load_data(param):
     loader_val = torch.utils.data.DataLoader(datasets.ImageFolder(valdir, transforms.Compose([  transforms.Resize(256),
                                                                                                 transforms.CenterCrop(224),
                                                                                                 transforms.ToTensor(),
-                                                                                                _unused_normalize,
+                                                                                                #_unused_normalize,
                                                                                                 ])),
                                             batch_size=param['batch_size_eval'], shuffle=False,
                                             num_workers=param['workers_eval'], pin_memory=True)
@@ -97,8 +99,9 @@ def main():
         'momentum' : 0.9,
         'focal_loss' : False,
         'focal_loss_gamma' : 1,
-        'train_ori' : False,
-        'adv_PGD' : True,
+        'train_ori' : True,
+        'adv_PGD' : False,
+        'adv_cc' : False,
         'net_type' : 'resnet50_ori',
         'is_pretrain' : True,
         
@@ -127,6 +130,15 @@ def main():
         net = resnet50_ori(isPretrain=param['is_pretrain'])
     else:
         raise ValueError('Invalid net name.')
+
+    '''
+    idx=0
+    for child in net.children():
+        idx += 1
+        if idx == 0:
+            for param in child.parameters():
+                param.requires_grad = False
+    '''
     
     if torch.cuda.is_available():
         print('CUDA enabled.')
@@ -136,7 +148,7 @@ def main():
             net = torch.nn.DataParallel(net).cuda()
 
     pre_weight_path = None
-    pre_weight_path = "/home/yantao/workspace/resnet50_ori/Tue Feb 12 18:18:54 2019/adv_29.pth.tar"
+    #pre_weight_path = "/home/yantao/workspace/resnet50_ori/Tue Feb 12 18:18:54 2019/adv_29.pth.tar"
     param['pre_weight_path'] = pre_weight_path
 
     if pre_weight_path is not None:
@@ -151,7 +163,7 @@ def main():
     
     if is_evaluate_PGD:
         PGD_param_eval = {"epsilon" : 16. / 255,
-                          "k" : 40,
+                          "k" : 20,
                           "a" : 2. / 255,
                           "random_start" : True,
                          }
@@ -199,7 +211,7 @@ def main():
         loss_file = './loss_info_' + param['net_type'] + '_' + data_time_str + '.csv'
         with open(loss_file, 'w') as csvfile:
             writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-            writer.writerow(["loss_ori", "loss_pgd", "loss_ori_eval", "loss_pgd_eval_mean"])
+            writer.writerow(["loss_ori", "loss_pgd", "loss_cc" , "loss_ori_eval", "loss_pgd_eval_mean"])
 
     # Train the model
     print("Start training")
@@ -207,12 +219,13 @@ def main():
         net.train()
         loss_ori_mean = AverageMeter()
         loss_pgd_mean = AverageMeter()
+        loss_cc_mean = AverageMeter()
         print('Starting epoch %d / %d' % (epoch + 1, param['num_epochs']))
-        for _, (x, y) in enumerate(tqdm(loader_train)):
+        for batch_idx, (x, y) in enumerate(tqdm(loader_train)):
             x_var, y_var = to_var(x), to_var(y.long())
 
             loss_ori = criterion(net(x_var), y_var)
-            
+
             # adversarial training
             if epoch >= param['delay'] and param['adv_PGD']:
                 adversary = LinfPGDAttack(epsilon=PGD_param["epsilon"], k=PGD_param["k"], a=PGD_param["a"], random_start=PGD_param["random_start"])
@@ -224,20 +237,38 @@ def main():
             else:
                 loss_pgd = torch.tensor(0).cuda()
 
+            if epoch >= param['delay'] and param['adv_cc']:
+                adversary = CommonCorruptionsAttack(return_all=True)
+                x_adv = adversary(x.numpy().transpose((0, 2, 3, 1)))
+                x_adv_var = to_var(x_adv)
+                loss_cc = criterion(net(x_adv_var), y_var)
+            else:
+                loss_cc = torch.tensor(0).cuda()
+
             all_params = torch.cat([x.view(-1) for x in net.parameters()])
             l1_regularization = (param['w_l1'] * torch.norm(all_params, 1)).cuda()
 
             if param['train_ori'] or epoch < param['delay']:
-                loss = loss_pgd + loss_ori + l1_regularization
+                loss = loss_pgd + loss_cc + loss_ori + l1_regularization
             else:
-                loss = loss_pgd + l1_regularization
+                loss = loss_pgd + loss_cc + l1_regularization
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            loss_pgd_mean.update(loss_pgd.cpu().detach().numpy())
             loss_ori_mean.update(loss_ori.cpu().detach().numpy())
+            loss_pgd_mean.update(loss_pgd.cpu().detach().numpy())
+            loss_cc_mean.update(loss_cc.cpu().detach().numpy())
+            
+            if batch_idx % 1 != 0:
+                print("ori: " , loss_ori.cpu().detach().numpy())
+                print("pgd: " , loss_pgd.cpu().detach().numpy())
+                print("ori_avg: ", loss_ori_mean.avg)
+                print("pgd_avg: ", loss_pgd_mean.avg)
+                with open('test.csv', 'a') as csvfile:
+                    writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+                    writer.writerow([loss_ori.cpu().detach().numpy(), loss_pgd.cpu().detach().numpy(), loss_ori_mean.avg, loss_pgd_mean.avg])
 
         lr_scheduler.step()
 
@@ -263,13 +294,13 @@ def main():
             
             loss_eval_mean.update(loss_eval.cpu().detach().numpy())
 
-        print("loss_ori , loss_pgd , loss_ori_eval, loss_pgd_eval: ", loss_ori_mean.avg, " , ", loss_pgd_mean.avg, " , " , loss_eval_mean.avg, " , ", loss_pgd_eval_mean.avg)
+        print("loss_ori , loss_pgd , loss_cc , loss_ori_eval, loss_pgd_eval: ", loss_ori_mean.avg, " , ", loss_pgd_mean.avg, " , " , loss_cc_mean.avg, " , ", loss_eval_mean.avg, " , ", loss_pgd_eval_mean.avg)
         
         # record loss info
         if not is_debug:
             with open(loss_file, 'a') as csvfile:
                 writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-                writer.writerow([loss_ori_mean.avg, loss_pgd_mean.avg, loss_eval_mean.avg, loss_pgd_eval_mean.avg])
+                writer.writerow([loss_ori_mean.avg, loss_pgd_mean.avg, loss_cc_mean.avg, loss_eval_mean.avg, loss_pgd_eval_mean.avg])
 
         def wrapped_model(x_np):
             x_np = x_np.transpose((0, 3, 1, 2))  # from NHWC to NCHW
@@ -280,17 +311,18 @@ def main():
             return result
         
         
-        if (epoch + 1) % 200 == 0:
+        if (epoch + 1) % 50 == 0:
             eval_prec = eval_kit.evaluate_bird_or_bicycle_model(wrapped_model, model_name='adv_'+str(epoch)) #_on_trainingset
             print("epoch: ", epoch)
             print(eval_prec)
 
-        # save model for each epoch
-        save_dic = {
-            'arch' : param['net_type'],
-            'state_dict' : net.state_dict()
-        }
-        save_model(save_dic, filename=os.path.join(save_weights_dir, 'adv_' + str(epoch) + '.pth.tar'))
+        if not is_debug:
+            # save model for each epoch
+            save_dic = {
+                'arch' : param['net_type'],
+                'state_dict' : net.state_dict()
+            }
+            save_model(save_dic, filename=os.path.join(save_weights_dir, 'adv_' + str(epoch) + '.pth.tar'))
         
 
 def save_model(save_dic, filename):
