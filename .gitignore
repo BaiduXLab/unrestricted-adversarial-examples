@@ -15,3 +15,4 @@ workspace_yl/saved_csv_results/
 workspace_yl/saved_models/*.tar
 workspace_yl/test_img/
 workspace_yl/unrestricted_advex_evals/
+workspace_yl/adversarialbox/__pycache__/*
