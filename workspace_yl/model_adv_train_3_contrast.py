@@ -32,15 +32,15 @@ import pdb
 
 def main():
     # Hyper-parameters
-    is_debug = True
+    is_debug = False
     is_evaluate_PGD = False
     is_evaluate_black = False
     param = {
-        'batch_size': 8,
+        'batch_size': 256,
         'batch_size_eval' : 8,
-        'num_epochs': 200,
+        'num_epochs': 100,
         'delay': 0,
-        'learning_rate': 1e-1,   # 1e-4
+        'learning_rate': 1e-2,
         'weight_decay': 5e-4, #5e-4,
         'w_l1' : 0.0,
         'focal_loss' : False,
@@ -48,13 +48,13 @@ def main():
         'momentum' : 0.9,
         'adv_PGD' : True,
         'net_type' : 'contrast_resnet50',
-        'contrast_beta' : 0.0,
+        'contrast_beta' : 1e2,
         'resnet_pretrain' : False,
         
     }
-    PGD_param = {"epsilon" : 16. / 255,
-                 "k" : 4,
-                 "a" : 4. / 255,
+    PGD_param = {"epsilon" : 8. / 255,
+                 "k" : 8,
+                 "a" : 2. / 255,
                  "random_start" : True}
 
     param['workers'] = 4
@@ -71,7 +71,7 @@ def main():
         net = torch.nn.DataParallel(net).cuda()
 
     pre_weight_path = None
-    pre_weight_path = "/home/yantao/workspace/projects/baidu/unrestricted-adversarial-examples/workspace_yl/saved_models/resnet50_ori_base_model.pth.tar"
+    pre_weight_path = "/home/yantao/workspace/contrast_resnet50/Wed Feb 27 18:56:42 2019/contrast_fe_94.pth.tar"
     param['pre_weight_path'] = pre_weight_path
     if pre_weight_path is not None:
         if os.path.isfile(pre_weight_path):
@@ -83,9 +83,9 @@ def main():
 
     if is_evaluate_PGD:
         PGD_param_eval = {"epsilon" : 16. / 255,
-                          "k" : 20,
-                          "a" : 2. / 255,
-                          "random_start" : False,
+                          "k" : 16,
+                          "a" : 3. / 255,
+                          "random_start" : True,
                          }
         adversary = LinfPGDAttack(epsilon=PGD_param_eval["epsilon"], k=PGD_param_eval["k"], a=PGD_param_eval["a"], random_start=PGD_param_eval["random_start"])
         net.eval()
@@ -113,7 +113,7 @@ def main():
 
 
     optimizer = torch.optim.SGD(net.parameters(), lr=param['learning_rate'], momentum=param['momentum'],  weight_decay=param['weight_decay'])
-    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30, 60, 90], gamma=0.2)
+    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30, 60, 80], gamma=0.2)
     if param['focal_loss']:
         criterion = FocalLoss(gamma=param['focal_loss_gamma']).cuda()
     else:
@@ -135,7 +135,6 @@ def main():
     # Train the model
     print("Start training")
     for epoch in range(param['num_epochs']):
-        net.train()
         total_correct_ori = 0
         total_correct_pgd = 0
         total_samples = len(loader_train.dataset)
@@ -146,7 +145,7 @@ def main():
 
         print('Starting epoch %d / %d' % (epoch + 1, param['num_epochs']))
         for batch_idx, (x, y) in enumerate(tqdm(loader_train)):
-
+            net.eval()
             x_var = x.cuda()
             y_var = y.cuda()
 
@@ -157,10 +156,11 @@ def main():
             logits_argmax = np.argmax(logits.data.cpu().numpy(), axis=1)
             total_correct_ori += (logits_argmax == y.numpy()).sum()
 
+            
             # use predicted label to prevent label leaking
             # y_pred = pred_batch(x, net, multi_out=True)
             # y_pred = torch.from_numpy(logits_argmax)
-            x_adv = adversary(x, y, net, criterion, 'train')
+            x_adv = adversary(x, y, net, criterion, 'eval')
             x_adv_var = x_adv.cuda()
             logits_adv, fe_adv = net(x_adv_var) 
             #logits_adv = net(x_adv_var) 
@@ -170,8 +170,17 @@ def main():
             #loss_contrast = F.mse_loss(fe_adv, fe)
             loss_contrast = F.l1_loss(fe_adv, fe, reduction='mean')
 
-            #loss = loss_ori + loss_adv + param['contrast_beta'] * loss_contrast # 
-            loss = loss_ori
+            #loss = loss_ori + loss_adv + param['contrast_beta'] * loss_contrast
+            '''
+            loss_adv = torch.tensor(0).cuda()
+            loss_contrast = torch.tensor(0).cuda()
+            '''
+            
+            if batch_idx < param['delay']:
+                loss = loss_ori
+            else:
+                #loss = loss_ori + loss_adv + param['contrast_beta'] * loss_contrast
+                loss = loss_adv
 
             optimizer.zero_grad()
             loss.backward()
@@ -180,7 +189,7 @@ def main():
             loss_mean.update(loss.cpu().detach().numpy())
             loss_ori_mean.update(loss_ori.cpu().detach().numpy())
             loss_adv_mean.update(loss_adv.cpu().detach().numpy())
-            #loss_contrast_mean.update(loss_contrast.cpu().detach().numpy())
+            loss_contrast_mean.update(loss_contrast.cpu().detach().numpy())
             
             '''
             if batch_idx % 30 == 0:
@@ -201,14 +210,10 @@ def main():
         total_samples_eval = len(loader_val.dataset)
         loss_eval_mean = AverageMeter()
         loss_pgd_eval_mean = AverageMeter()
-        '''
-        model_cp = copy.deepcopy(net)
-        for p in model_cp.parameters():
-            p.requires_grad = False
-        model_cp.eval()
-        '''
-        net.eval()
+
+        
         for _, (x, y) in enumerate(tqdm(loader_val)):
+            net.eval()
             x_var, y_var = to_var(x), to_var(y.long())
             output, _ = net(x_var)
             #output = net(x_var)

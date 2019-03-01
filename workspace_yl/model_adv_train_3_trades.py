@@ -87,7 +87,7 @@ def main():
     is_evaluate_PGD = False
     is_evaluate_black = False
     param = {
-        'batch_size': 90,
+        'batch_size': 8,
         'batch_size_eval' : 8,
         'num_epochs': 200,
         'delay': 0,
@@ -180,10 +180,12 @@ def main():
 
     # create log
     data_time_str = datetime.now().ctime()
+    '''
     save_weights_dir = os.path.join('/home/yantao/workspace', param['net_type'] + '_trades', data_time_str)
     os.mkdir(save_weights_dir)
 
     write_para_info(param, PGD_param, filepath = os.path.join(save_weights_dir, 'para_info.txt'))
+    '''
 
     loss_file = './loss_info_' + param['net_type'] + '_trades_' + data_time_str + '.csv'
     with open(loss_file, 'w') as csvfile:
@@ -257,14 +259,14 @@ def main():
             eval_prec = eval_kit.evaluate_bird_or_bicycle_model(wrapped_model, model_name='adv_'+str(epoch)) #_on_trainingset
             print("epoch: ", epoch)
             print(eval_prec)
-
+        '''
         # save model for each epoch
         save_dic = {
             'arch' : param['net_type'],
             'state_dict' : net.state_dict()
         }
         save_model(save_dic, filename=os.path.join(save_weights_dir, 'adv_' + str(epoch) + '.pth.tar'))
-        
+        '''
 
 def save_model(save_dic, filename):
     torch.save(save_dic, filename)
