@@ -17,7 +17,7 @@ import copy
 from adversarialbox.attacks import FGSMAttack, LinfPGDAttack, CommonCorruptionsAttack, LinfPGDAttack_v2
 from adversarialbox.train import adv_train, FGSM_train_rnd
 from adversarialbox.utils import to_var, pred_batch, test, attack_over_test_data
-from models.models import Contrastive_res50_fe, resnet50_ori, resnet18_ori
+from models.models import Contrastive_res50_fe, resnet50_ori, resnet18_ori, resnet101_ori
 from model_train_eval import AverageMeter, accuracy, save_checkpoint, get_model
 from unrestricted_advex import eval_kit, attacks
 from loss_func.loss_functions import ContrastiveLoss
@@ -32,7 +32,7 @@ import pdb
 
 def main():
     # Hyper-parameters
-    is_debug = False
+    is_debug = True
     is_evaluate_PGD = False
     is_evaluate_black = False
     param = {
@@ -52,26 +52,32 @@ def main():
         'resnet_pretrain' : False,
         
     }
-    PGD_param = {"epsilon" : 8. / 255,
-                 "k" : 8,
+    PGD_param = {"epsilon" : 4. / 255,
+                 "k" : 4,
                  "a" : 2. / 255,
                  "random_start" : True}
+
+    # .eval() has changed!
 
     param['workers'] = 4
     param['workers_eval'] = 4
 
     # load bird or bicycle data
     loader_train, loader_val, loader_test = load_data(param)
-
-    net = resnet50_ori(n_channels=3, num_classes=2, fe_branch=True, isPretrain=param['resnet_pretrain'])
-    #net = torchmodels.resnet50(pretrained=False, num_classes=2)
+    if param['net_type'] == 'contrast_resnet50':
+        net = resnet50_ori(n_channels=3, num_classes=2, fe_branch=True, isPretrain=param['resnet_pretrain'])
+        #net = torchmodels.resnet50(pretrained=False, num_classes=2)
+    elif param['net_type'] == 'contrast_resnet101':
+        net = resnet101_ori(n_channels=3, num_classes=2, fe_branch=True, isPretrain=param['resnet_pretrain'])
+    else:
+        raise ValueError('Invalid net type.')
 
     if torch.cuda.is_available():
         print('CUDA enabled.')
         net = torch.nn.DataParallel(net).cuda()
 
     pre_weight_path = None
-    pre_weight_path = "/home/yantao/workspace/contrast_resnet50/Wed Feb 27 18:56:42 2019/contrast_fe_94.pth.tar"
+    #pre_weight_path = "/home/yantao/workspace/contrast_resnet50/base_clean/contrast_fe_30.pth.tar"
     param['pre_weight_path'] = pre_weight_path
     if pre_weight_path is not None:
         if os.path.isfile(pre_weight_path):
@@ -83,8 +89,8 @@ def main():
 
     if is_evaluate_PGD:
         PGD_param_eval = {"epsilon" : 16. / 255,
-                          "k" : 16,
-                          "a" : 3. / 255,
+                          "k" : 20,
+                          "a" : 2. / 255,
                           "random_start" : True,
                          }
         adversary = LinfPGDAttack(epsilon=PGD_param_eval["epsilon"], k=PGD_param_eval["k"], a=PGD_param_eval["a"], random_start=PGD_param_eval["random_start"])
@@ -145,7 +151,8 @@ def main():
 
         print('Starting epoch %d / %d' % (epoch + 1, param['num_epochs']))
         for batch_idx, (x, y) in enumerate(tqdm(loader_train)):
-            net.eval()
+            #net.eval()
+            net.train()
             x_var = x.cuda()
             y_var = y.cuda()
 
@@ -192,7 +199,7 @@ def main():
             loss_contrast_mean.update(loss_contrast.cpu().detach().numpy())
             
             '''
-            if batch_idx % 30 == 0:
+            if batch_idx % 1 == 0:
                 print(loss.cpu().detach().numpy())
                 print(loss_ori.cpu().detach().numpy())
                 print(loss_adv.cpu().detach().numpy())

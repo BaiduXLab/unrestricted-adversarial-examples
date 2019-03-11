@@ -4,7 +4,7 @@ import numpy as np
 from scipy.signal import gaussian
 
 from models.squeezenet import SqueezeNet
-from models.ResNet import resnet18, resnet50
+from models.ResNet import resnet18, resnet50, resnet101
 
 import torchvision.models as torchmodels
 
@@ -200,6 +200,26 @@ class resnet50_ori(nn.Module):
         x = self.fc(res50_fe)
         if self.fe_branch:
             return x, res50_fe
+        else:
+            return x
+
+class resnet101_ori(nn.Module):
+    def __init__(self, n_channels=3, num_classes=2, fe_branch=False, isPretrain=False):
+        super(resnet101_ori, self).__init__()
+        self.fe_branch = fe_branch
+        _resnet101 = resnet101(pretrained=isPretrain, n_channels=n_channels)
+        self.res101_conv = nn.Sequential(*list(_resnet101.children())[:-1])
+        self.fc = nn.Linear(2048, num_classes)
+        #self.bn = nn.BatchNorm1d(2048)
+
+    def forward(self, x):
+        
+        x = self.res101_conv(x)
+        res101_fe = x.view(x.size(0), -1)
+        #res101_fe_bn = self.bn(res101_fe)
+        x = self.fc(res101_fe)
+        if self.fe_branch:
+            return x, res101_fe
         else:
             return x
         
