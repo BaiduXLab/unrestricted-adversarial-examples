@@ -88,9 +88,8 @@ def attack_over_test_data(model, adversary, loader_test, multi_out=False):
     total_correct = 0
     total_samples = len(loader_test.dataset)
 
-    for t, (X, y) in enumerate(tqdm(loader_test)):
-        y_pred = pred_batch(X, model, multi_out=multi_out)
-        X_adv = adversary.perturb(X.numpy(), y_pred)
+    for _, (X, y) in enumerate(tqdm(loader_test)):
+        X_adv = adversary.perturb(X.numpy(), y.numpy())
         X_adv = torch.from_numpy(X_adv)
 
         y_pred_adv = pred_batch(X_adv, model, multi_out=multi_out)

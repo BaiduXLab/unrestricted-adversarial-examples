@@ -40,12 +40,11 @@ def load_data(param):
                                             std=[0.229, 0.224, 0.225])
 
     train_dataset = [datasets.ImageFolder(traindir, transforms.Compose([
-                                            transforms.RandomResizedCrop(224),
+                                            #transforms.RandomRotation(10),
                                             transforms.RandomCrop(224, padding=16),
                                             transforms.RandomHorizontalFlip(),
                                             transforms.ToTensor(),
-                                            torchsample.transforms.Rotate(np.random.randint(60) - 30),
-                                            #_unused_normalize,
+                                            _unused_normalize,
                                             ]))
                         for traindir in traindirs]
     if len(train_dataset) == 1:
@@ -58,7 +57,7 @@ def load_data(param):
     loader_val = torch.utils.data.DataLoader(datasets.ImageFolder(valdir, transforms.Compose([  transforms.Resize(256),
                                                                                                 transforms.CenterCrop(224),
                                                                                                 transforms.ToTensor(),
-                                                                                                #_unused_normalize,
+                                                                                                _unused_normalize,
                                                                                                 ])),
                                             batch_size=param['batch_size_eval'], shuffle=False,
                                             num_workers=param['workers_eval'], pin_memory=True)

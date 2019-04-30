@@ -36,7 +36,7 @@ def main():
     is_evaluate_PGD = False
     is_evaluate_black = False
     param = {
-        'batch_size': 256,
+        'batch_size': 32,
         'batch_size_eval' : 8,
         'num_epochs': 100,
         'delay': 0,
@@ -47,17 +47,18 @@ def main():
         'focal_loss_gamma' : 1.5,
         'momentum' : 0.9,
         'adv_PGD' : True,
-        'net_type' : 'contrast_resnet50',
+        'net_type' : 'contrast_resnet101',
         'contrast_beta' : 1e2,
         'resnet_pretrain' : False,
         
     }
-    PGD_param = {"epsilon" : 4. / 255,
-                 "k" : 4,
+    PGD_param = {"epsilon" : 16. / 255,
+                 "k" : 8,
                  "a" : 2. / 255,
                  "random_start" : True}
-
-    # .eval() has changed!
+    '''
+    # .eval() has not changed
+    ''' 
 
     param['workers'] = 4
     param['workers_eval'] = 4
@@ -77,7 +78,7 @@ def main():
         net = torch.nn.DataParallel(net).cuda()
 
     pre_weight_path = None
-    #pre_weight_path = "/home/yantao/workspace/contrast_resnet50/base_clean/contrast_fe_30.pth.tar"
+    pre_weight_path = "/home/yantao/workspace/contrast_resnet101/8_8_2_preweight/contrast_fe_29.pth.tar"
     param['pre_weight_path'] = pre_weight_path
     if pre_weight_path is not None:
         if os.path.isfile(pre_weight_path):
@@ -85,7 +86,7 @@ def main():
             checkpoint = torch.load(pre_weight_path)
             net.load_state_dict(checkpoint['state_dict'])
         else:
-            raise ValueError('wight path does not exist.')
+            raise ValueError('weight path does not exist.')
 
     if is_evaluate_PGD:
         PGD_param_eval = {"epsilon" : 16. / 255,
@@ -98,7 +99,7 @@ def main():
         acc = attack_over_test_data(net, adversary, loader_val, multi_out=True)
         print(PGD_param_eval)
         print("eval accuracy: " , str(acc))
-        acc = attack_over_test_data(net, adversary, loader_train, multi_out=True)
+        acc = attack_over_test_data(net, adversary, loader_test, multi_out=True)
         print("test accuracy: " , str(acc))
         if not is_evaluate_black:
             quit()
@@ -151,8 +152,8 @@ def main():
 
         print('Starting epoch %d / %d' % (epoch + 1, param['num_epochs']))
         for batch_idx, (x, y) in enumerate(tqdm(loader_train)):
-            #net.eval()
-            net.train()
+            net.eval()
+            #net.train()
             x_var = x.cuda()
             y_var = y.cuda()
 
@@ -198,13 +199,13 @@ def main():
             loss_adv_mean.update(loss_adv.cpu().detach().numpy())
             loss_contrast_mean.update(loss_contrast.cpu().detach().numpy())
             
-            '''
+            
             if batch_idx % 1 == 0:
                 print(loss.cpu().detach().numpy())
                 print(loss_ori.cpu().detach().numpy())
                 print(loss_adv.cpu().detach().numpy())
                 print(loss_contrast.cpu().detach().numpy())
-            '''
+            
         lr_scheduler.step()
         #print(loss_ori_mean.avg, loss_adv_mean.avg)
 
